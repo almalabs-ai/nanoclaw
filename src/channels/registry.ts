@@ -23,11 +23,13 @@ export function setIdentityWrapper(fn: IdentityWrapper): void {
 }
 
 export function registerChannel(name: string, factory: ChannelFactory): void {
-  registry.set(name, _identityWrapper ? _identityWrapper(name, factory) : factory);
+  registry.set(name, factory);
 }
 
 export function getChannelFactory(name: string): ChannelFactory | undefined {
-  return registry.get(name);
+  const factory = registry.get(name);
+  if (!factory) return undefined;
+  return _identityWrapper ? _identityWrapper(name, factory) : factory;
 }
 
 export function getRegisteredChannelNames(): string[] {

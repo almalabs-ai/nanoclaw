@@ -61,6 +61,8 @@ import {
   loadSenderAllowlist,
   shouldDropMessage,
 } from './sender-allowlist.js';
+import { loadPeopleConfig, wrapChannelFactory } from './identity/index.js';
+import { setIdentityWrapper } from './channels/registry.js';
 import { startSessionCleanup } from './session-cleanup.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
@@ -68,6 +70,13 @@ import { logger } from './logger.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
+
+// Wire identity layer: wrap channel factories so every inbound message
+// gets canonical_id + roles attached before the agent sees it.
+const _peopleConfig = loadPeopleConfig();
+setIdentityWrapper((name, factory) =>
+  wrapChannelFactory(name, factory, () => _peopleConfig),
+);
 
 let lastTimestamp = '';
 let sessions: Record<string, string> = {};
