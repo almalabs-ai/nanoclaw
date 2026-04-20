@@ -25,6 +25,9 @@ groups/global/*
 # Temp files
 .tmp-*
 
+# Git worktrees
+.worktrees/
+
 # OS
 .DS_Store
 
