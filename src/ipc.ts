@@ -8,7 +8,10 @@ import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
+import { checkCapability, loadPolicyConfig } from './policy/index.js';
 import { RegisteredGroup } from './types.js';
+
+let _policyConfig = loadPolicyConfig();
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
@@ -173,12 +176,21 @@ export async function processTaskIpc(
     trigger?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
+    callerId?: string;       // canonical_id from NANOCLAW_CALLER_ID env (future: set by container)
+    callerRoles?: string[];  // roles from NANOCLAW_CALLER_ROLES env (future: set by container)
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
   deps: IpcDeps,
 ): Promise<void> {
   const registeredGroups = deps.registeredGroups();
+
+  // Capability check: isMain OR (callerId has the required capability)
+  const callerCanDo = (capability: string): boolean => {
+    if (isMain) return true;
+    if (!data.callerId || !data.callerRoles) return false;
+    return checkCapability(data.callerId, capability, data.callerRoles, _policyConfig);
+  };
 
   switch (data.type) {
     case 'schedule_task':
@@ -203,7 +215,7 @@ export async function processTaskIpc(
         const targetFolder = targetGroupEntry.folder;
 
         // Authorization: non-main groups can only schedule for themselves
-        if (!isMain && targetFolder !== sourceGroup) {
+        if (!callerCanDo('scheduler.crossGroup') && targetFolder !== sourceGroup) {
           logger.warn(
             { sourceGroup, targetFolder },
             'Unauthorized schedule_task attempt blocked',
@@ -280,7 +292,7 @@ export async function processTaskIpc(
     case 'pause_task':
       if (data.taskId) {
         const task = getTaskById(data.taskId);
-        if (task && (isMain || task.group_folder === sourceGroup)) {
+        if (task && (task.group_folder === sourceGroup || callerCanDo('scheduler.crossGroup'))) {
           updateTask(data.taskId, { status: 'paused' });
           logger.info(
             { taskId: data.taskId, sourceGroup },
@@ -299,7 +311,7 @@ export async function processTaskIpc(
     case 'resume_task':
       if (data.taskId) {
         const task = getTaskById(data.taskId);
-        if (task && (isMain || task.group_folder === sourceGroup)) {
+        if (task && (task.group_folder === sourceGroup || callerCanDo('scheduler.crossGroup'))) {
           updateTask(data.taskId, { status: 'active' });
           logger.info(
             { taskId: data.taskId, sourceGroup },
@@ -318,7 +330,7 @@ export async function processTaskIpc(
     case 'cancel_task':
       if (data.taskId) {
         const task = getTaskById(data.taskId);
-        if (task && (isMain || task.group_folder === sourceGroup)) {
+        if (task && (task.group_folder === sourceGroup || callerCanDo('scheduler.crossGroup'))) {
           deleteTask(data.taskId);
           logger.info(
             { taskId: data.taskId, sourceGroup },
@@ -344,7 +356,7 @@ export async function processTaskIpc(
           );
           break;
         }
-        if (!isMain && task.group_folder !== sourceGroup) {
+        if (task.group_folder !== sourceGroup && !callerCanDo('scheduler.crossGroup')) {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
             'Unauthorized task update attempt',
@@ -401,8 +413,8 @@ export async function processTaskIpc(
       break;
 
     case 'refresh_groups':
-      // Only main group can request a refresh
-      if (isMain) {
+      // Only main group (or authorized caller) can request a refresh
+      if (callerCanDo('refresh_groups')) {
         logger.info(
           { sourceGroup },
           'Group metadata refresh requested via IPC',
@@ -425,8 +437,8 @@ export async function processTaskIpc(
       break;
 
     case 'register_group':
-      // Only main group can register new groups
-      if (!isMain) {
+      // Only main group (or authorized caller) can register new groups
+      if (!callerCanDo('register_group')) {
         logger.warn(
           { sourceGroup },
           'Unauthorized register_group attempt blocked',
