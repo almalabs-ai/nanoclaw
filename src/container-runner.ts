@@ -5,6 +5,7 @@
 import { ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { readEnvFile } from './env.js';
 
 import {
   CONTAINER_IMAGE,
@@ -44,7 +45,7 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
-  callerId?: string;      // canonical_id of the user who triggered this run
+  callerId?: string; // canonical_id of the user who triggered this run
   callerRoles?: string[]; // roles of the triggering user
 }
 
@@ -257,16 +258,16 @@ async function buildContainerArgs(
   args.push('-e', `TZ=${TIMEZONE}`);
 
   // MCP API keys — forwarded from host .env so the agent-runner can configure
-  // optional MCP servers at startup. Each key is only passed if set on the host.
-  const mcpEnvVars = [
+  // optional MCP servers at startup. Uses readEnvFile because the systemd service
+  // does not load .env into process.env.
+  const mcpEnvValues = readEnvFile([
     'ALMA_LIBRARY_API_KEY',
     'LINEAR_API_TOKEN',
     'GITHUB_PERSONAL_ACCESS_TOKEN',
     'SLACK_BOT_TOKEN',
-  ] as const;
-  for (const key of mcpEnvVars) {
-    const val = process.env[key];
-    if (val) args.push('-e', `${key}=${val}`);
+  ]);
+  for (const [key, val] of Object.entries(mcpEnvValues)) {
+    args.push('-e', `${key}=${val}`);
   }
 
   // OneCLI gateway handles credential injection — containers never see real secrets.
@@ -307,8 +308,13 @@ async function buildContainerArgs(
 
   // Caller identity for MCP tool authorization
   if (callerEnv) {
-    if (callerEnv.callerId) args.push('-e', `NANOCLAW_CALLER_ID=${callerEnv.callerId}`);
-    if (callerEnv.callerRoles?.length) args.push('-e', `NANOCLAW_CALLER_ROLES=${callerEnv.callerRoles.join(',')}`);
+    if (callerEnv.callerId)
+      args.push('-e', `NANOCLAW_CALLER_ID=${callerEnv.callerId}`);
+    if (callerEnv.callerRoles?.length)
+      args.push(
+        '-e',
+        `NANOCLAW_CALLER_ROLES=${callerEnv.callerRoles.join(',')}`,
+      );
   }
 
   args.push(CONTAINER_IMAGE);
