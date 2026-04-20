@@ -4,6 +4,8 @@ set -euo pipefail
 # Must run as root
 [ "$(id -u)" = "0" ] || { echo "Must run as root"; exit 1; }
 
+export DEBIAN_FRONTEND=noninteractive
+
 # ---------------------------------------------------------------------------
 # 1. Node.js 22 via NodeSource
 # ---------------------------------------------------------------------------
@@ -28,15 +30,12 @@ systemctl start docker
 # 3. UFW firewall rules (deny all inbound except SSH)
 # ---------------------------------------------------------------------------
 echo "=== BOOTSTRAP: Configuring UFW firewall ==="
-if command -v ufw &>/dev/null; then
-  # Allow SSH to prevent lockout
-  ufw allow 22/tcp
-  # NanoClaw channels use outbound WebSockets - no inbound ports needed
-  # Enable non-interactive (won't prompt)
-  ufw --force enable
-  ufw default deny incoming
-  ufw default allow outgoing
-fi
+apt-get install -y ufw
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp
+# NanoClaw channels use outbound WebSockets - no inbound ports needed
+ufw --force enable
 
 # ---------------------------------------------------------------------------
 # 4. logrotate for NanoClaw logs
@@ -50,11 +49,7 @@ cat > /etc/logrotate.d/nanoclaw <<'EOF'
     compress
     delaycompress
     notifempty
-    create 0640 root root
-    sharedscripts
-    postrotate
-        systemctl --user try-restart nanoclaw 2>/dev/null || true
-    endscript
+    copytruncate
 }
 EOF
 
@@ -62,6 +57,7 @@ EOF
 # 5. Unattended upgrades (security patches only)
 # ---------------------------------------------------------------------------
 echo "=== BOOTSTRAP: Configuring unattended-upgrades ==="
+apt-get update -qq
 apt-get install -y unattended-upgrades
 # Write the config (idempotent — overwrite is safe)
 cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
