@@ -62,6 +62,7 @@ import {
   shouldDropMessage,
 } from './sender-allowlist.js';
 import { loadPeopleConfig, wrapChannelFactory } from './identity/index.js';
+import { checkCapability, loadPolicyConfig } from './policy/index.js';
 import { setIdentityWrapper } from './channels/registry.js';
 import { startSessionCleanup } from './session-cleanup.js';
 import { startSchedulerLoop } from './task-scheduler.js';
@@ -74,6 +75,7 @@ export { escapeXml, formatMessages } from './router.js';
 // Wire identity layer: wrap channel factories so every inbound message
 // gets canonical_id + roles attached before the agent sees it.
 const _peopleConfig = loadPeopleConfig();
+const _policyConfig = loadPolicyConfig();
 setIdentityWrapper((name, factory) =>
   wrapChannelFactory(name, factory, () => _peopleConfig),
 );
@@ -608,10 +610,15 @@ async function main(): Promise<void> {
     msg: NewMessage,
   ): Promise<void> {
     const group = registeredGroups[chatJid];
-    if (!group?.isMain) {
+    const hasRemoteControlAccess =
+      group?.isMain ||
+      (msg.canonical_id != null &&
+        msg.roles != null &&
+        checkCapability(msg.canonical_id, 'system.remoteControl', msg.roles, _policyConfig));
+    if (!hasRemoteControlAccess) {
       logger.warn(
-        { chatJid, sender: msg.sender },
-        'Remote control rejected: not main group',
+        { chatJid, sender: msg.sender, canonical_id: msg.canonical_id },
+        'Remote control rejected: insufficient permissions',
       );
       return;
     }
