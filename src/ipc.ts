@@ -11,7 +11,7 @@ import { logger } from './logger.js';
 import { checkCapability, loadPolicyConfig } from './policy/index.js';
 import { RegisteredGroup } from './types.js';
 
-let _policyConfig = loadPolicyConfig();
+const _policyConfig = loadPolicyConfig();
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
@@ -176,8 +176,8 @@ export async function processTaskIpc(
     trigger?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
-    callerId?: string;       // canonical_id from NANOCLAW_CALLER_ID env (future: set by container)
-    callerRoles?: string[];  // roles from NANOCLAW_CALLER_ROLES env (future: set by container)
+    callerId?: string; // canonical_id from NANOCLAW_CALLER_ID env (future: set by container)
+    callerRoles?: string[]; // roles from NANOCLAW_CALLER_ROLES env (future: set by container)
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -189,7 +189,12 @@ export async function processTaskIpc(
   const callerCanDo = (capability: string): boolean => {
     if (isMain) return true;
     if (!data.callerId || !data.callerRoles) return false;
-    return checkCapability(data.callerId, capability, data.callerRoles, _policyConfig);
+    return checkCapability(
+      data.callerId,
+      capability,
+      data.callerRoles,
+      _policyConfig,
+    );
   };
 
   switch (data.type) {
@@ -215,7 +220,10 @@ export async function processTaskIpc(
         const targetFolder = targetGroupEntry.folder;
 
         // Authorization: non-main groups can only schedule for themselves
-        if (!callerCanDo('scheduler.crossGroup') && targetFolder !== sourceGroup) {
+        if (
+          !callerCanDo('scheduler.crossGroup') &&
+          targetFolder !== sourceGroup
+        ) {
           logger.warn(
             { sourceGroup, targetFolder },
             'Unauthorized schedule_task attempt blocked',
@@ -292,7 +300,11 @@ export async function processTaskIpc(
     case 'pause_task':
       if (data.taskId) {
         const task = getTaskById(data.taskId);
-        if (task && (task.group_folder === sourceGroup || callerCanDo('scheduler.crossGroup'))) {
+        if (
+          task &&
+          (task.group_folder === sourceGroup ||
+            callerCanDo('scheduler.crossGroup'))
+        ) {
           updateTask(data.taskId, { status: 'paused' });
           logger.info(
             { taskId: data.taskId, sourceGroup },
@@ -311,7 +323,11 @@ export async function processTaskIpc(
     case 'resume_task':
       if (data.taskId) {
         const task = getTaskById(data.taskId);
-        if (task && (task.group_folder === sourceGroup || callerCanDo('scheduler.crossGroup'))) {
+        if (
+          task &&
+          (task.group_folder === sourceGroup ||
+            callerCanDo('scheduler.crossGroup'))
+        ) {
           updateTask(data.taskId, { status: 'active' });
           logger.info(
             { taskId: data.taskId, sourceGroup },
@@ -330,7 +346,11 @@ export async function processTaskIpc(
     case 'cancel_task':
       if (data.taskId) {
         const task = getTaskById(data.taskId);
-        if (task && (task.group_folder === sourceGroup || callerCanDo('scheduler.crossGroup'))) {
+        if (
+          task &&
+          (task.group_folder === sourceGroup ||
+            callerCanDo('scheduler.crossGroup'))
+        ) {
           deleteTask(data.taskId);
           logger.info(
             { taskId: data.taskId, sourceGroup },
@@ -356,7 +376,10 @@ export async function processTaskIpc(
           );
           break;
         }
-        if (task.group_folder !== sourceGroup && !callerCanDo('scheduler.crossGroup')) {
+        if (
+          task.group_folder !== sourceGroup &&
+          !callerCanDo('scheduler.crossGroup')
+        ) {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
             'Unauthorized task update attempt',

@@ -66,11 +66,20 @@ export function loadPolicyConfig(pathOverride?: string): PolicyConfig {
   const obj = parsed as Record<string, unknown>;
 
   const capabilities: Record<string, string[] | '*'> = {};
-  if (obj.capabilities && typeof obj.capabilities === 'object' && !Array.isArray(obj.capabilities)) {
-    for (const [key, value] of Object.entries(obj.capabilities as Record<string, unknown>)) {
+  if (
+    obj.capabilities &&
+    typeof obj.capabilities === 'object' &&
+    !Array.isArray(obj.capabilities)
+  ) {
+    for (const [key, value] of Object.entries(
+      obj.capabilities as Record<string, unknown>,
+    )) {
       if (value === '*') {
         capabilities[key] = '*';
-      } else if (Array.isArray(value) && value.every((r) => typeof r === 'string')) {
+      } else if (
+        Array.isArray(value) &&
+        value.every((r) => typeof r === 'string')
+      ) {
         capabilities[key] = value as string[];
       } else {
         logger.warn(
@@ -88,7 +97,10 @@ export function loadPolicyConfig(pathOverride?: string): PolicyConfig {
     !Array.isArray(obj.unknown_sender)
   ) {
     const us = obj.unknown_sender as Record<string, unknown>;
-    if (Array.isArray(us.roles) && us.roles.every((r) => typeof r === 'string')) {
+    if (
+      Array.isArray(us.roles) &&
+      us.roles.every((r) => typeof r === 'string')
+    ) {
       unknownSenderRoles.splice(0, unknownSenderRoles.length, ...us.roles);
     }
   }
@@ -121,14 +133,18 @@ export function loadRolesConfig(pathOverride?: string): RolesConfig {
 
   const roles: Record<string, RoleDefinition> = {};
   if (obj.roles && typeof obj.roles === 'object' && !Array.isArray(obj.roles)) {
-    for (const [key, value] of Object.entries(obj.roles as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(
+      obj.roles as Record<string, unknown>,
+    )) {
       if (
         value &&
         typeof value === 'object' &&
         !Array.isArray(value) &&
         typeof (value as Record<string, unknown>).description === 'string'
       ) {
-        roles[key] = { description: (value as Record<string, unknown>).description as string };
+        roles[key] = {
+          description: (value as Record<string, unknown>).description as string,
+        };
       } else {
         logger.warn(
           { key, value, path: filePath },

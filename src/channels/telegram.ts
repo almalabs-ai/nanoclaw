@@ -2,7 +2,7 @@ import fs from 'fs';
 import https from 'https';
 import path from 'path';
 
-import { Api, Bot, Context } from 'grammy';
+import { Api, Bot } from 'grammy';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
@@ -90,7 +90,10 @@ export class TelegramChannel implements Channel {
       const fileUrl = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
       const resp = await fetch(fileUrl);
       if (!resp.ok) {
-        logger.warn({ fileId, status: resp.status }, 'Telegram file download failed');
+        logger.warn(
+          { fileId, status: resp.status },
+          'Telegram file download failed',
+        );
         return null;
       }
 
@@ -277,7 +280,7 @@ export class TelegramChannel implements Channel {
         const msgId = ctx.message.message_id.toString();
         const filename =
           opts.filename ||
-          `${placeholder.replace(/[\[\] ]/g, '').toLowerCase()}_${msgId}`;
+          `${placeholder.replace(/[[\] ]/g, '').toLowerCase()}_${msgId}`;
         this.downloadFile(opts.fileId, group.folder, filename).then(
           (filePath) => {
             if (filePath) {
@@ -333,7 +336,9 @@ export class TelegramChannel implements Channel {
       const emoji = ctx.message.sticker?.emoji || '';
       storeMedia(ctx, `[Sticker ${emoji}]`);
     });
-    this.bot.on('message:location', (ctx: any) => storeMedia(ctx, '[Location]'));
+    this.bot.on('message:location', (ctx: any) =>
+      storeMedia(ctx, '[Location]'),
+    );
     this.bot.on('message:contact', (ctx: any) => storeMedia(ctx, '[Contact]'));
 
     // Handle errors gracefully

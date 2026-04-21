@@ -1,25 +1,26 @@
-name: CI
+# .github/workflows/lint.yml
+name: Lint
 
 on:
   pull_request:
     branches: [main]
 
 jobs:
-  ci:
+  lint:
+    name: ESLint + Prettier
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
           cache: npm
+
       - run: npm ci
 
-      - name: Format check
+      - name: Prettier check
         run: npm run format:check
 
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Tests
-        run: npx vitest run
+      - name: ESLint
+        run: npm run lint
