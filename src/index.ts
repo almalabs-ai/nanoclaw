@@ -782,7 +782,7 @@ async function main(): Promise<void> {
       channelsConnected: channels
         .filter((ch) => ch.isConnected())
         .map((ch) => ch.name),
-      dbOk: true,
+      dbOk: true, // DB init already ran — no live probe yet
       registeredGroupsCount: Object.keys(registeredGroups).length,
     }));
     logger.info({ socketPath: healthSocketPath }, 'Health server started');
