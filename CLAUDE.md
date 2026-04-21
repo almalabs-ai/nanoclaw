@@ -79,21 +79,13 @@ Four types of skills exist in NanoClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) f
 | `/use-native-credential-proxy` | Replace OneCLI gateway with built-in .env credential proxy |
 | `/x-integration` | X (Twitter) integration: post tweets, like, reply, retweet |
 | `/claw` | Install claw CLI tool for running NanoClaw agent containers from command line |
-
-### Planned SDLC skills (not yet installed — see Plan B)
-
-These skills are designed but not yet installed. Their SKILL.md files will be added in the `/build-it` system Plan B PR.
-
-| Skill | When to Use |
-|-------|-------------|
+| `/nanoclaw-deploy-droplet` | Deploy merged PR to production DO droplet: pull, build, optional container rebuild, restart, smoke verify, rollback |
 | `/build-it` | Drive a change end-to-end: intake → brainstorm → plan → implement → test → review → PR → release → deploy → verify |
-| `/build-it --resume` | Resume an interrupted `/build-it` mission from its last checkpoint |
-| `/catch-up` | Cold-start helper: given a Linear ID or slug, reconstruct current phase, last artifact, and next action |
-| `nanoclaw-docs-sync` | Audit CLAUDE.md/README/CONTRIBUTING against the tree; write ADR; update INDEX.md; commit doc fixes |
-| `nanoclaw-release` | Bump semver, append CHANGELOG entry, tag, push — phase [8] of `/build-it` |
-| `nanoclaw-deploy-droplet` | SSH-deploy a version tag to the DO droplet, rebuild container, restart, probe health |
-| `nanoclaw-postdeploy-verify` | Run smoke-send.ts probes after deploy; auto-rollback on failure |
-| `nanoclaw-channel-smoke-matrix` | Run channel unit tests and optional container smoke for each impacted channel |
+| `/catch-up` | Cold-start helper: reconstruct current mission state from INDEX.md, DEPLOY-LOG.md, and inflight manifest |
+| `/nanoclaw-docs-sync` | Audit CLAUDE.md/README/CONTRIBUTING against the tree; write ADR; update INDEX.md; commit |
+| `/nanoclaw-release` | Bump semver from last git tag, append CHANGELOG, create annotated tag, push |
+| `/nanoclaw-postdeploy-verify` | Run smoke-send.ts probes after deploy; check logs; rollback on failure |
+| `/nanoclaw-channel-smoke-matrix` | Map changed files to test suites; run unit tests + optional container smoke |
 
 ## Container Skills
 
