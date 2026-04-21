@@ -512,7 +512,7 @@ Phone must be in international format, digits only (no + prefix, no spaces, no d
 - US: "14155551234"   (1 = country code, then 10 digits)
 - IL: "972501234567"  (972 = country code, then 9 digits)
 
-The WhatsApp channel must be running on the host for this to work. Works from any channel (Telegram, Slack, WhatsApp itself).`,
+The WhatsApp channel must be running on the host for this to work. Available to the main group's agent regardless of which channel originated the conversation. Non-main groups require the 'send_whatsapp_message' capability granted in policy.json.`,
   {
     phone: z
       .string()
