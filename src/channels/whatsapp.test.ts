@@ -746,7 +746,9 @@ describe('WhatsAppChannel', () => {
 
       let delivered: string | null = null;
       const opts = createTestOpts();
-      opts.onMessage = (_jid, msg) => { delivered = msg.content; };
+      opts.onMessage = (_jid, msg) => {
+        delivered = msg.content;
+      };
 
       const channel = new WhatsAppChannel(opts);
       await connectChannel(channel);
