@@ -87,7 +87,7 @@ whatsapp-auth.ts → request pairing code for eSIM number
 | Scenario | Behaviour |
 |---|---|
 | WhatsApp not connected when `send_whatsapp_message` is called | `src/ipc.ts` returns `{ error: "WhatsApp channel not connected" }` — agent surfaces as readable message, no crash |
-| Auth session expiry | `connection.update` with `loggedOut: true` → log warning, write `store/auth/expired.flag` → orchestrator health check alerts via Telegram/Slack |
+| Auth session expiry | `connection.update` with `loggedOut: true` → log warning → Baileys auto-reconnects; if full re-auth is needed the user will notice Almanda stopped responding and re-run the pairing-code flow via SSH |
 | Voice download failure | Handler logs, replies "Sorry, I couldn't process that voice message" — matches Telegram voice error pattern |
 | `src/transcription.ts` merge conflict | Resolve `--ours` — ALM-551 version is authoritative; verify `downloadFile` returns `{ containerPath, hostPath }` in merged voice handler |
 | Pairing code timeout (~60 s) | `whatsapp-auth.ts` detects disconnect, re-requests code automatically |
