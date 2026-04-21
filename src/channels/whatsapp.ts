@@ -340,6 +340,8 @@ export class WhatsAppChannel implements Channel {
                   content = '[Voice message — download failed]';
                 }
               } catch (err) {
+                // Catch here rather than propagating: ensures a failed voice message
+                // delivers a readable fallback instead of silently dropping the message.
                 logger.error({ err, chatJid }, 'Voice transcription error');
                 content = '[Voice message — transcription failed]';
               }
@@ -585,12 +587,16 @@ export class WhatsAppChannel implements Channel {
       const attachDir = path.join(groupDir, 'attachments');
       fs.mkdirSync(attachDir, { recursive: true });
 
+      // WhatsApp PTT is always OGG/Opus per the Baileys media spec
       const filename = `wa_voice_${msgId.replace(/[^a-zA-Z0-9]/g, '_')}.ogg`;
       const hostPath = path.join(attachDir, filename);
       fs.writeFileSync(hostPath, buffer);
 
       const containerPath = `/workspace/group/attachments/${filename}`;
-      logger.info({ msgId, dest: hostPath, bytes: buffer.length }, 'WhatsApp voice downloaded');
+      logger.info(
+        { msgId, dest: hostPath, bytes: buffer.length },
+        'WhatsApp voice downloaded',
+      );
       return { containerPath, hostPath };
     } catch (err) {
       logger.error({ msgId, err }, 'Failed to download WhatsApp voice message');

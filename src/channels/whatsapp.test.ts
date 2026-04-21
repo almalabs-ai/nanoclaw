@@ -44,12 +44,16 @@ vi.mock('fs', async () => {
 
 // Mock group-folder
 vi.mock('../group-folder.js', () => ({
-  resolveGroupFolderPath: vi.fn((folder: string) => `/tmp/nanoclaw-test-store/groups/${folder}`),
+  resolveGroupFolderPath: vi.fn(
+    (folder: string) => `/tmp/nanoclaw-test-store/groups/${folder}`,
+  ),
 }));
 
 // Mock transcription
 vi.mock('../transcription.js', () => ({
-  transcribeAudioFile: vi.fn().mockResolvedValue({ transcript: 'Hello this is a voice message' }),
+  transcribeAudioFile: vi
+    .fn()
+    .mockResolvedValue({ transcript: 'Hello this is a voice message' }),
 }));
 
 // Mock child_process (used for osascript notification)
@@ -97,7 +101,9 @@ vi.mock('@whiskeysockets/baileys', () => {
       timedOut: 408,
       restartRequired: 515,
     },
-    downloadMediaMessage: vi.fn().mockResolvedValue(Buffer.from('fake-audio-data')),
+    downloadMediaMessage: vi
+      .fn()
+      .mockResolvedValue(Buffer.from('fake-audio-data')),
     fetchLatestWaWebVersion: vi
       .fn()
       .mockResolvedValue({ version: [2, 3000, 0] }),
@@ -154,6 +160,22 @@ async function triggerMessages(messages: unknown[]) {
   fakeSocket._ev.emit('messages.upsert', { messages });
   // Flush microtasks so the async messages.upsert handler completes
   await new Promise((r) => setTimeout(r, 0));
+}
+
+function makePttMessage(idSuffix = 'test') {
+  return {
+    key: {
+      id: `msg-voice-${idSuffix}`,
+      remoteJid: 'registered@g.us',
+      participant: '5551234@s.whatsapp.net',
+      fromMe: false,
+    },
+    message: {
+      audioMessage: { mimetype: 'audio/ogg; codecs=opus', ptt: true },
+    },
+    pushName: 'Frank',
+    messageTimestamp: Math.floor(Date.now() / 1000),
+  };
 }
 
 // --- Tests ---
@@ -644,13 +666,17 @@ describe('WhatsAppChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'registered@g.us',
         expect.objectContaining({
-          content: expect.stringContaining('[Voice: Hello this is a voice message]'),
+          content: expect.stringContaining(
+            '[Voice: Hello this is a voice message]',
+          ),
         }),
       );
     });
 
     it('falls back when transcription returns no transcript', async () => {
-      vi.mocked(transcribeAudioFile).mockResolvedValueOnce({ error: 'OPENAI_API_KEY not set' });
+      vi.mocked(transcribeAudioFile).mockResolvedValueOnce({
+        error: 'OPENAI_API_KEY not set',
+      });
 
       const opts = createTestOpts();
       const channel = new WhatsAppChannel(opts);
@@ -675,7 +701,9 @@ describe('WhatsAppChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'registered@g.us',
         expect.objectContaining({
-          content: expect.stringContaining('[Voice message — transcription unavailable]'),
+          content: expect.stringContaining(
+            '[Voice message — transcription unavailable]',
+          ),
         }),
       );
     });
@@ -712,8 +740,26 @@ describe('WhatsAppChannel', () => {
       );
     });
 
+    it('delivers download-failed when downloadMediaMessage returns empty buffer', async () => {
+      const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
+      vi.mocked(downloadMediaMessage).mockResolvedValueOnce(Buffer.alloc(0));
+
+      let delivered: string | null = null;
+      const opts = createTestOpts();
+      opts.onMessage = (_jid, msg) => { delivered = msg.content; };
+
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([makePttMessage()]);
+
+      expect(delivered).toContain('[Voice message — download failed]');
+    });
+
     it('falls back when transcription throws', async () => {
-      vi.mocked(transcribeAudioFile).mockRejectedValueOnce(new Error('API error'));
+      vi.mocked(transcribeAudioFile).mockRejectedValueOnce(
+        new Error('API error'),
+      );
 
       const opts = createTestOpts();
       const channel = new WhatsAppChannel(opts);
