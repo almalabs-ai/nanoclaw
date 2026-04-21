@@ -21,5 +21,6 @@
     ".env.example"
   ],
   "upstreamEligible": false,
-  "currentPhase": 6
+  "currentPhase": 7,
+  "prNumber": 6
 }
