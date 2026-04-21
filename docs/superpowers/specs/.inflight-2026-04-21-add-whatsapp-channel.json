@@ -21,6 +21,7 @@
     ".env.example"
   ],
   "upstreamEligible": false,
-  "currentPhase": 7.5,
-  "prNumber": 6
+  "currentPhase": 8,
+  "prNumber": 6,
+  "tag": "v1.4.0"
 }
