@@ -686,14 +686,21 @@ describe('send_whatsapp_message', () => {
     };
 
     await processTaskIpc(
-      { type: 'send_whatsapp_message', phone: '+447700900123', text: 'Hello from Almanda' },
+      {
+        type: 'send_whatsapp_message',
+        phone: '+447700900123',
+        text: 'Hello from Almanda',
+      },
       'whatsapp_main',
       true,
       deps,
     );
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual({ phone: '+447700900123', text: 'Hello from Almanda' });
+    expect(calls[0]).toEqual({
+      phone: '+447700900123',
+      text: 'Hello from Almanda',
+    });
   });
 
   it('does not throw when sendWhatsAppMessage is not configured', async () => {
@@ -710,7 +717,9 @@ describe('send_whatsapp_message', () => {
 
   it('does nothing when phone or text is missing', async () => {
     const calls: string[] = [];
-    deps.sendWhatsAppMessage = async (phone) => { calls.push(phone); };
+    deps.sendWhatsAppMessage = async (phone) => {
+      calls.push(phone);
+    };
 
     await processTaskIpc(
       { type: 'send_whatsapp_message' }, // missing phone and text
