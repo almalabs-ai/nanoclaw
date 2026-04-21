@@ -82,9 +82,25 @@ vi.mock('../env.js', () => ({
   }),
 }));
 
+// Mock group-folder (used by downloadSlackFile)
+vi.mock('../group-folder.js', () => ({
+  resolveGroupFolderPath: vi.fn(
+    (folder: string) => `/tmp/test-groups/${folder}`,
+  ),
+}));
+
+// Mock transcription module
+vi.mock('../transcription.js', () => ({
+  transcribeAudioFile: vi.fn(),
+}));
+
+import fs from 'fs';
 import { SlackChannel, SlackChannelOpts } from './slack.js';
 import { updateChatName } from '../db.js';
 import { readEnvFile } from '../env.js';
+import { transcribeAudioFile } from '../transcription.js';
+
+const mockTranscribeAudioFile = vi.mocked(transcribeAudioFile);
 
 // --- Test helpers ---
 
@@ -115,6 +131,13 @@ function createMessageEvent(overrides: {
   threadTs?: string;
   subtype?: string;
   botId?: string;
+  files?: Array<{
+    id: string;
+    name: string;
+    mimetype: string;
+    filetype?: string;
+    url_private_download?: string;
+  }>;
 }) {
   return {
     channel: overrides.channel ?? 'C0123456789',
@@ -125,8 +148,11 @@ function createMessageEvent(overrides: {
     thread_ts: overrides.threadTs,
     subtype: overrides.subtype,
     bot_id: overrides.botId,
+    files: overrides.files,
   };
 }
+
+const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function currentApp() {
   return appRef.current;
@@ -144,10 +170,20 @@ async function triggerMessageEvent(
 describe('SlackChannel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // Default: transcription succeeds
+    mockTranscribeAudioFile.mockResolvedValue({
+      transcript: 'hello from voice',
+    });
+
+    // Default: fs operations succeed (for downloadSlackFile)
+    vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   // --- Connection lifecycle ---
@@ -854,6 +890,125 @@ describe('SlackChannel', () => {
     it('has name "slack"', () => {
       const channel = new SlackChannel(createTestOpts());
       expect(channel.name).toBe('slack');
+    });
+  });
+
+  // --- Voice message handling ---
+
+  describe('voice message handling', () => {
+    it('downloads and transcribes audio file from file_share event', async () => {
+      const opts = createTestOpts();
+      const channel = new SlackChannel(opts);
+      await channel.connect();
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+        }),
+      );
+
+      const event = createMessageEvent({
+        subtype: 'file_share',
+        text: '',
+        files: [
+          {
+            id: 'F_VOICE_123',
+            name: 'recording.m4a',
+            mimetype: 'audio/mp4',
+            url_private_download: 'https://files.slack.com/voice.m4a',
+          },
+        ],
+      });
+      await triggerMessageEvent(event);
+      await flushPromises();
+
+      // Download fetch uses bot token
+      expect(fetch).toHaveBeenCalledWith(
+        'https://files.slack.com/voice.m4a',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer xoxb-test-token',
+          }),
+        }),
+      );
+
+      // Transcription called with host path
+      expect(mockTranscribeAudioFile).toHaveBeenCalledWith(
+        '/tmp/test-groups/test-channel/attachments/slack_voice_F_VOICE_123.m4a',
+      );
+
+      // Message delivered with transcript
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'slack:C0123456789',
+        expect.objectContaining({
+          content:
+            '[Voice: hello from voice] (/workspace/group/attachments/slack_voice_F_VOICE_123.m4a)',
+        }),
+      );
+    });
+
+    it('falls back when transcription fails', async () => {
+      const opts = createTestOpts();
+      const channel = new SlackChannel(opts);
+      await channel.connect();
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+        }),
+      );
+      mockTranscribeAudioFile.mockResolvedValueOnce({ error: 'API error' });
+
+      const event = createMessageEvent({
+        subtype: 'file_share',
+        text: '',
+        files: [
+          {
+            id: 'F_VOICE_456',
+            name: 'voice.m4a',
+            mimetype: 'audio/mp4',
+            url_private_download: 'https://files.slack.com/voice2.m4a',
+          },
+        ],
+      });
+      await triggerMessageEvent(event);
+      await flushPromises();
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'slack:C0123456789',
+        expect.objectContaining({
+          content:
+            '[Voice message — transcription unavailable] (/workspace/group/attachments/slack_voice_F_VOICE_456.m4a)',
+        }),
+      );
+    });
+
+    it('ignores file_share events for unregistered channels', async () => {
+      const opts = createTestOpts();
+      const channel = new SlackChannel(opts);
+      await channel.connect();
+
+      const event = createMessageEvent({
+        channel: 'C9999999999',
+        subtype: 'file_share',
+        text: '',
+        files: [
+          {
+            id: 'F_VOICE_789',
+            name: 'voice.m4a',
+            mimetype: 'audio/mp4',
+            url_private_download: 'https://files.slack.com/voice3.m4a',
+          },
+        ],
+      });
+      await triggerMessageEvent(event);
+      await flushPromises();
+
+      expect(opts.onMessage).not.toHaveBeenCalled();
     });
   });
 });
