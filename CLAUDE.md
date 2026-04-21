@@ -79,6 +79,13 @@ Four types of skills exist in NanoClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) f
 | `/use-native-credential-proxy` | Replace OneCLI gateway with built-in .env credential proxy |
 | `/x-integration` | X (Twitter) integration: post tweets, like, reply, retweet |
 | `/claw` | Install claw CLI tool for running NanoClaw agent containers from command line |
+
+### Planned SDLC skills (not yet installed — see Plan B)
+
+These skills are designed but not yet installed. Their SKILL.md files will be added in the `/build-it` system Plan B PR.
+
+| Skill | When to Use |
+|-------|-------------|
 | `/build-it` | Drive a change end-to-end: intake → brainstorm → plan → implement → test → review → PR → release → deploy → verify |
 | `/build-it --resume` | Resume an interrupted `/build-it` mission from its last checkpoint |
 | `/catch-up` | Cold-start helper: given a Linear ID or slug, reconstruct current phase, last artifact, and next action |
