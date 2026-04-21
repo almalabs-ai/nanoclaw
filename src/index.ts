@@ -754,6 +754,15 @@ async function main(): Promise<void> {
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       return channel.sendMessage(jid, text);
     },
+    sendWhatsAppMessage: async (phone, text) => {
+      const whatsappCh = channels.find((ch) => ch.name === 'whatsapp');
+      if (!whatsappCh) {
+        logger.warn({ phone }, 'send_whatsapp_message: WhatsApp channel not connected');
+        return;
+      }
+      const jid = phone.replace(/\D/g, '') + '@s.whatsapp.net';
+      await whatsappCh.sendMessage(jid, text);
+    },
     registeredGroups: () => registeredGroups,
     registerGroup,
     syncGroups: async (force: boolean) => {
