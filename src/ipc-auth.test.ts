@@ -677,3 +677,48 @@ describe('register_group success', () => {
     expect(getRegisteredGroup('partial@g.us')).toBeUndefined();
   });
 });
+
+describe('send_whatsapp_message', () => {
+  it('calls sendWhatsAppMessage with the phone number and text', async () => {
+    const calls: Array<{ phone: string; text: string }> = [];
+    deps.sendWhatsAppMessage = async (phone, text) => {
+      calls.push({ phone, text });
+    };
+
+    await processTaskIpc(
+      { type: 'send_whatsapp_message', phone: '+447700900123', text: 'Hello from Almanda' },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({ phone: '+447700900123', text: 'Hello from Almanda' });
+  });
+
+  it('does not throw when sendWhatsAppMessage is not configured', async () => {
+    // deps has no sendWhatsAppMessage property
+    await expect(
+      processTaskIpc(
+        { type: 'send_whatsapp_message', phone: '+14155551234', text: 'Test' },
+        'whatsapp_main',
+        true,
+        deps,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('does nothing when phone or text is missing', async () => {
+    const calls: string[] = [];
+    deps.sendWhatsAppMessage = async (phone) => { calls.push(phone); };
+
+    await processTaskIpc(
+      { type: 'send_whatsapp_message' }, // missing phone and text
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    expect(calls).toHaveLength(0);
+  });
+});
