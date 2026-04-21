@@ -79,7 +79,6 @@ Four types of skills exist in NanoClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) f
 | `/use-native-credential-proxy` | Replace OneCLI gateway with built-in .env credential proxy |
 | `/x-integration` | X (Twitter) integration: post tweets, like, reply, retweet |
 | `/claw` | Install claw CLI tool for running NanoClaw agent containers from command line |
-| `/add-slack-ops` | Add Slack write access (post to channels + DMs, react) — writes require user approval |
 | `/build-it` | Drive a change end-to-end: intake → brainstorm → plan → implement → test → review → PR → release → deploy → verify |
 | `/build-it --resume` | Resume an interrupted `/build-it` mission from its last checkpoint |
 | `/catch-up` | Cold-start helper: given a Linear ID or slug, reconstruct current phase, last artifact, and next action |
