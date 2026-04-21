@@ -1,0 +1,15 @@
+{
+  "changeType": "container-or-channel",
+  "linearId": "ALM-568",
+  "slug": "add-whatsapp-channel",
+  "touchedAreas": [
+    "src/channels",
+    "src/whatsapp-auth.ts",
+    "container/agent-runner",
+    "container/Dockerfile",
+    "package.json",
+    ".env.example"
+  ],
+  "upstreamEligible": false,
+  "currentPhase": 0
+}
