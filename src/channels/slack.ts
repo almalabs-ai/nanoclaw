@@ -1,10 +1,15 @@
+import fs from 'fs';
+import path from 'path';
+
 import { App, LogLevel } from '@slack/bolt';
 import type { GenericMessageEvent, BotMessageEvent } from '@slack/types';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { updateChatName } from '../db.js';
 import { readEnvFile } from '../env.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
 import { logger } from '../logger.js';
+import { transcribeAudioFile } from '../transcription.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
@@ -33,6 +38,7 @@ export class SlackChannel implements Channel {
 
   private app: App;
   private botUserId: string | undefined;
+  private botToken: string;
   private connected = false;
   private outgoingQueue: Array<{ jid: string; text: string }> = [];
   private flushing = false;
@@ -55,6 +61,7 @@ export class SlackChannel implements Channel {
       );
     }
 
+    this.botToken = botToken;
     this.app = new App({
       token: botToken,
       appToken,
@@ -72,6 +79,13 @@ export class SlackChannel implements Channel {
       // Bolt's event type is the full MessageEvent union (17+ subtypes).
       // We filter on subtype first, then narrow to the two types we handle.
       const subtype = (event as { subtype?: string }).subtype;
+
+      // Route voice/audio file shares to dedicated handler
+      if (subtype === 'file_share') {
+        await this.handleFileShareEvent(event as any);
+        return;
+      }
+
       if (subtype && subtype !== 'bot_message') return;
 
       // After filtering, event is either GenericMessageEvent or BotMessageEvent
@@ -131,6 +145,120 @@ export class SlackChannel implements Channel {
         is_bot_message: isBotMessage,
       });
     });
+  }
+
+  private async handleFileShareEvent(event: {
+    channel: string;
+    channel_type: string;
+    user?: string;
+    ts: string;
+    files?: Array<{
+      id: string;
+      name: string | null;
+      mimetype: string;
+      filetype?: string;
+      url_private_download?: string;
+    }>;
+    text?: string;
+  }): Promise<void> {
+    const jid = `slack:${event.channel}`;
+    const timestamp = new Date(parseFloat(event.ts) * 1000).toISOString();
+    const isGroup = event.channel_type !== 'im';
+
+    this.opts.onChatMetadata(jid, timestamp, undefined, 'slack', isGroup);
+
+    const groups = this.opts.registeredGroups();
+    if (!groups[jid]) return;
+
+    const group = groups[jid];
+    const senderName = event.user
+      ? (await this.resolveUserName(event.user)) || event.user
+      : 'unknown';
+
+    const audioMimetypes = ['audio/'];
+    const audioFiletypes = [
+      'm4a',
+      'mp3',
+      'mp4',
+      'webm',
+      'wav',
+      'ogg',
+      'mpeg',
+      'mpga',
+    ];
+    const audioFiles = (event.files || []).filter(
+      (f) =>
+        audioMimetypes.some((m) => f.mimetype?.startsWith(m)) ||
+        audioFiletypes.includes(f.filetype || ''),
+    );
+
+    for (const file of audioFiles) {
+      const paths = await this.downloadSlackFile(file, group.folder);
+      let content: string;
+      if (paths) {
+        const result = await transcribeAudioFile(paths.hostPath);
+        content = result.transcript
+          ? `[Voice: ${result.transcript}] (${paths.containerPath})`
+          : `[Voice message — transcription unavailable] (${paths.containerPath})`;
+      } else {
+        content = '[Voice message — download failed]';
+      }
+      if (event.text) content = `${content}\n${event.text}`;
+
+      this.opts.onMessage(jid, {
+        id: event.ts,
+        chat_jid: jid,
+        sender: event.user || '',
+        sender_name: senderName,
+        content,
+        timestamp,
+        is_from_me: false,
+      });
+    }
+  }
+
+  private async downloadSlackFile(
+    file: {
+      id: string;
+      name: string | null;
+      mimetype: string;
+      url_private_download?: string;
+    },
+    groupFolder: string,
+  ): Promise<{ containerPath: string; hostPath: string } | null> {
+    if (!file.url_private_download) return null;
+
+    const ext =
+      path.extname(file.name || '') ||
+      `.${file.mimetype.split('/')[1]?.split(';')[0] || 'bin'}`;
+    const filename = `slack_voice_${file.id}${ext}`;
+
+    const groupDir = resolveGroupFolderPath(groupFolder);
+    const attachDir = path.join(groupDir, 'attachments');
+    fs.mkdirSync(attachDir, { recursive: true });
+
+    const hostPath = path.join(attachDir, filename);
+    const containerPath = `/workspace/group/attachments/${filename}`;
+
+    try {
+      const resp = await fetch(file.url_private_download, {
+        headers: { Authorization: `Bearer ${this.botToken}` },
+      });
+      if (!resp.ok) {
+        logger.warn(
+          { fileId: file.id, status: resp.status },
+          'Slack file download failed',
+        );
+        return null;
+      }
+      const buffer = Buffer.from(await resp.arrayBuffer());
+      fs.writeFileSync(hostPath, buffer);
+      logger.info({ fileId: file.id, dest: hostPath }, 'Slack file downloaded');
+      return { containerPath, hostPath };
+    } catch (err) {
+      logger.error({ fileId: file.id, err }, 'Failed to download Slack file');
+      return null;
+    }
   }
 
   async connect(): Promise<void> {

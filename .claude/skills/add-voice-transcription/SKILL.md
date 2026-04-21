@@ -1,29 +1,35 @@
 ---
 name: add-voice-transcription
-description: Add voice message transcription to NanoClaw using OpenAI's Whisper API. Automatically transcribes WhatsApp voice notes so the agent can read and respond to them.
+description: Wire WhatsApp's voice handler to the core transcription module (src/transcription.ts, on main since ALM-551). Core transcription already works on Telegram and Slack — this skill only adds the WhatsApp-specific audio download wiring.
 ---
 
-# Add Voice Transcription
+# Add Voice Transcription (WhatsApp)
 
-This skill adds automatic voice message transcription to NanoClaw's WhatsApp channel using OpenAI's Whisper API. When a voice note arrives, it is downloaded, transcribed, and delivered to the agent as `[Voice: <transcript>]`.
+**Core transcription (`src/transcription.ts`) ships on `main` since ALM-551.** Telegram and Slack voice messages are transcribed automatically. This skill wires the same module into the WhatsApp channel.
+
+When a voice note arrives in WhatsApp, it is downloaded, transcribed via OpenAI Whisper, and delivered to the agent as `[Voice: <transcript>] (<file-path>)`.
 
 ## Phase 1: Pre-flight
 
-### Check if already applied
+### Check prerequisites
 
-Check if `src/transcription.ts` exists. If it does, skip to Phase 3 (Configure). The code changes are already in place.
+1. **WhatsApp must be installed first** — confirm `src/channels/whatsapp.ts` exists. If not, run `/add-whatsapp` first.
 
-### Ask the user
+2. **Core transcription** — confirm `src/transcription.ts` exists (it ships on main since ALM-551). If missing, something is wrong with the base installation; check git history.
 
-Use `AskUserQuestion` to collect information:
+3. **OpenAI API key** — you need `OPENAI_API_KEY` set in `.env`:
 
-AskUserQuestion: Do you have an OpenAI API key for Whisper transcription?
+```bash
+grep OPENAI_API_KEY .env
+```
 
-If yes, collect it now. If no, direct them to create one at https://platform.openai.com/api-keys.
+If missing, use `AskUserQuestion` to collect the key:
 
-## Phase 2: Apply Code Changes
+> I need an OpenAI API key for Whisper transcription.
+> Go to https://platform.openai.com/api-keys → "Create new secret key" → copy it.
+> Cost: ~$0.006/min (~$0.003 per typical 30-second voice note).
 
-**Prerequisite:** WhatsApp must be installed first (`skill/whatsapp` merged). This skill modifies WhatsApp channel files.
+## Phase 2: Apply WhatsApp Voice Wiring
 
 ### Ensure WhatsApp fork remote
 
@@ -31,13 +37,13 @@ If yes, collect it now. If no, direct them to create one at https://platform.ope
 git remote -v
 ```
 
-If `whatsapp` is missing, add it:
+If `whatsapp` is missing:
 
 ```bash
 git remote add whatsapp https://github.com/qwibitai/nanoclaw-whatsapp.git
 ```
 
-### Merge the skill branch
+### Merge the WhatsApp voice skill branch
 
 ```bash
 git fetch whatsapp skill/voice-transcription
@@ -48,16 +54,33 @@ git merge whatsapp/skill/voice-transcription || {
 }
 ```
 
-This merges in:
-- `src/transcription.ts` (voice transcription module using OpenAI Whisper)
-- Voice handling in `src/channels/whatsapp.ts` (isVoiceMessage check, transcribeAudioMessage call)
+**Important:** If there is a conflict on `src/transcription.ts`, prefer the `main` version — it is the canonical implementation. Resolve by running:
+
+```bash
+git checkout --ours src/transcription.ts
+git add src/transcription.ts
+git merge --continue
+```
+
+This branch adds:
+- Voice handling in `src/channels/whatsapp.ts` (isVoiceMessage check, call into core `transcribeAudioFile`)
 - Transcription tests in `src/channels/whatsapp.test.ts`
-- `openai` npm dependency in `package.json`
-- `OPENAI_API_KEY` in `.env.example`
 
-If the merge reports conflicts, resolve them by reading the conflicted files and understanding the intent of both sides.
+It does **not** add `src/transcription.ts` (already on main) or `OPENAI_API_KEY` to `.env.example` (already there).
 
-### Validate code changes
+**⚠️ Runtime compatibility check (ALM-551):** Since ALM-551, `downloadFile` in `telegram.ts` and the internal helpers in this codebase return `{ containerPath, hostPath }` instead of a plain `string`. If the WhatsApp branch predates ALM-551, `whatsapp.ts` may assign the download result to a `string` variable — a silent runtime bug (TypeScript won't catch it across branches). After merging, confirm the WhatsApp voice handler destructures the result:
+
+```ts
+// ✅ correct (ALM-551+)
+const { containerPath, hostPath } = await downloadFile(...);
+
+// ❌ wrong (pre-ALM-551)
+const filePath = await downloadFile(...);  // filePath is now an object, not a string
+```
+
+If `whatsapp.ts` uses the old pattern, update the assignment before building.
+
+### Validate
 
 ```bash
 npm install --legacy-peer-deps
@@ -65,30 +88,15 @@ npm run build
 npx vitest run src/channels/whatsapp.test.ts
 ```
 
-All tests must pass and build must be clean before proceeding.
+All tests must pass before proceeding.
 
 ## Phase 3: Configure
 
-### Get OpenAI API key (if needed)
-
-If the user doesn't have an API key:
-
-> I need you to create an OpenAI API key:
->
-> 1. Go to https://platform.openai.com/api-keys
-> 2. Click "Create new secret key"
-> 3. Give it a name (e.g., "NanoClaw Transcription")
-> 4. Copy the key (starts with `sk-`)
->
-> Cost: ~$0.006 per minute of audio (~$0.003 per typical 30-second voice note)
-
-Wait for the user to provide the key.
-
-### Add to environment
+### Add key to environment
 
 Add to `.env`:
 
-```bash
+```
 OPENAI_API_KEY=<their-key>
 ```
 
@@ -97,8 +105,6 @@ Sync to container environment:
 ```bash
 mkdir -p data/env && cp .env data/env/env
 ```
-
-The container reads environment from `data/env/env`, not `.env` directly.
 
 ### Build and restart
 
@@ -112,37 +118,32 @@ launchctl kickstart -k gui/$(id -u)/com.nanoclaw  # macOS
 
 ### Test with a voice note
 
-Tell the user:
+> Send a voice note in any registered WhatsApp chat. The agent should receive it as `[Voice: <transcript>] (<file-path>)` and respond to the content.
 
-> Send a voice note in any registered WhatsApp chat. The agent should receive it as `[Voice: <transcript>]` and respond to its content.
-
-### Check logs if needed
+### Check logs
 
 ```bash
-tail -f logs/nanoclaw.log | grep -i voice
+tail -f logs/nanoclaw.log | grep -i "voice\|transcri"
 ```
 
 Look for:
-- `Transcribed voice message` — successful transcription with character count
+- `Audio transcribed successfully` — Whisper success
 - `OPENAI_API_KEY not set` — key missing from `.env`
-- `OpenAI transcription failed` — API error (check key validity, billing)
-- `Failed to download audio message` — media download issue
+- `Whisper API returned error` — API error (check key validity, billing)
+- `Failed to read audio file` — download issue
 
 ## Troubleshooting
 
-### Voice notes show "[Voice Message - transcription unavailable]"
+### Voice notes show "[Voice message — transcription unavailable]"
 
 1. Check `OPENAI_API_KEY` is set in `.env` AND synced to `data/env/env`
-2. Verify key works: `curl -s https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY" | head -c 200`
+2. Verify key: `curl -s https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY" | head -c 200`
 3. Check OpenAI billing — Whisper requires a funded account
 
-### Voice notes show "[Voice Message - transcription failed]"
+### Merge conflict on src/transcription.ts
 
-Check logs for the specific error. Common causes:
-- Network timeout — transient, will work on next message
-- Invalid API key — regenerate at https://platform.openai.com/api-keys
-- Rate limiting — wait and retry
+Run `git checkout --ours src/transcription.ts && git add src/transcription.ts && git merge --continue`. The main branch version is authoritative.
 
 ### Agent doesn't respond to voice notes
 
-Verify the chat is registered and the agent is running. Voice transcription only runs for registered groups.
+Verify the chat is registered and the agent is running. Transcription only runs for registered groups.

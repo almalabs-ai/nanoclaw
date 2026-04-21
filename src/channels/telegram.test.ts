@@ -5,6 +5,11 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 // Mock registry (registerChannel runs at import time)
 vi.mock('./registry.js', () => ({ registerChannel: vi.fn() }));
 
+// Mock transcription module so voice tests don't hit the Whisper API
+vi.mock('../transcription.js', () => ({
+  transcribeAudioFile: vi.fn(),
+}));
+
 // Mock env reader (used by the factory, not needed in unit tests)
 vi.mock('../env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
 
@@ -79,6 +84,9 @@ vi.mock('grammy', () => ({
 
 import fs from 'fs';
 import { TelegramChannel, TelegramChannelOpts } from './telegram.js';
+import { transcribeAudioFile } from '../transcription.js';
+
+const mockTranscribeAudioFile = vi.mocked(transcribeAudioFile);
 
 // --- Test helpers ---
 
@@ -208,6 +216,11 @@ describe('TelegramChannel', () => {
         arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
       }),
     );
+
+    // Default: transcription succeeds
+    mockTranscribeAudioFile.mockResolvedValue({
+      transcript: 'hello from voice',
+    });
   });
 
   afterEach(() => {
@@ -792,7 +805,7 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('downloads voice message', async () => {
+    it('transcribes voice message and includes transcript in content', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -808,10 +821,39 @@ describe('TelegramChannel', () => {
       await flushPromises();
 
       expect(currentBot().api.getFile).toHaveBeenCalledWith('voice_id');
+      expect(mockTranscribeAudioFile).toHaveBeenCalledWith(
+        '/tmp/test-groups/test-group/attachments/voice_1.oga',
+      );
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Voice message] (/workspace/group/attachments/voice_1.oga)',
+          content:
+            '[Voice: hello from voice] (/workspace/group/attachments/voice_1.oga)',
+        }),
+      );
+    });
+
+    it('falls back to unavailable message when transcription fails', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      currentBot().api.getFile.mockResolvedValueOnce({
+        file_path: 'voice/file_0.oga',
+      });
+      mockTranscribeAudioFile.mockResolvedValueOnce({ error: 'API error' });
+
+      const ctx = createMediaCtx({
+        extra: { voice: { file_id: 'voice_id' } },
+      });
+      await triggerMediaMessage('message:voice', ctx);
+      await flushPromises();
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'tg:100200300',
+        expect.objectContaining({
+          content:
+            '[Voice message — transcription unavailable] (/workspace/group/attachments/voice_1.oga)',
         }),
       );
     });
