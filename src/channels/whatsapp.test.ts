@@ -8,6 +8,7 @@ vi.mock('../config.js', () => ({
   STORE_DIR: '/tmp/nanoclaw-test-store',
   ASSISTANT_NAME: 'Andy',
   ASSISTANT_HAS_OWN_NUMBER: false,
+  GROUPS_DIR: '/tmp/test-groups',
 }));
 
 // Mock logger
@@ -77,6 +78,7 @@ function createFakeSocket() {
     sendMessage: vi.fn().mockResolvedValue(undefined),
     sendPresenceUpdate: vi.fn().mockResolvedValue(undefined),
     groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
+    updateMediaMessage: vi.fn(),
     end: vi.fn(),
     // Expose the event emitter for triggering events in tests
     _ev: ev,
@@ -122,6 +124,7 @@ vi.mock('@whiskeysockets/baileys', () => {
 import { WhatsAppChannel, WhatsAppChannelOpts } from './whatsapp.js';
 import { getLastGroupSync, updateChatName, setLastGroupSync } from '../db.js';
 import { transcribeAudioFile } from '../transcription.js';
+import { downloadMediaMessage } from '@whiskeysockets/baileys';
 
 // --- Test helpers ---
 
@@ -635,6 +638,118 @@ describe('WhatsAppChannel', () => {
         'registered@g.us',
         expect.objectContaining({ sender_name: '5551234' }),
       );
+    });
+
+    it('downloads and injects PDF attachment path', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-pdf',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            documentMessage: {
+              mimetype: 'application/pdf',
+              fileName: 'report.pdf',
+            },
+          },
+          pushName: 'Alice',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(downloadMediaMessage).toHaveBeenCalled();
+
+      const fs = await import('fs');
+      expect(fs.default.writeFileSync).toHaveBeenCalled();
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content: expect.stringContaining('[PDF: attachments/report.pdf'),
+        }),
+      );
+    });
+
+    it('preserves document caption alongside PDF info', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-pdf-caption',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            documentMessage: {
+              mimetype: 'application/pdf',
+              fileName: 'report.pdf',
+              caption: 'Here is the monthly report',
+            },
+          },
+          pushName: 'Alice',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content: expect.stringContaining('Here is the monthly report'),
+        }),
+      );
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content: expect.stringContaining('[PDF: attachments/report.pdf'),
+        }),
+      );
+    });
+
+    it('handles PDF download failure gracefully', async () => {
+      vi.mocked(downloadMediaMessage).mockRejectedValueOnce(
+        new Error('Download failed'),
+      );
+
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-pdf-fail',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            documentMessage: {
+              mimetype: 'application/pdf',
+              fileName: 'report.pdf',
+            },
+          },
+          pushName: 'Bob',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      // Message skipped since content remains empty after failed download
+      expect(opts.onMessage).not.toHaveBeenCalled();
     });
   });
 
