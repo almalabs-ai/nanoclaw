@@ -37,9 +37,20 @@ vi.mock('fs', async () => {
       ...actual,
       existsSync: vi.fn(() => true),
       mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(),
     },
   };
 });
+
+// Mock group-folder
+vi.mock('../group-folder.js', () => ({
+  resolveGroupFolderPath: vi.fn((folder: string) => `/tmp/nanoclaw-test-store/groups/${folder}`),
+}));
+
+// Mock transcription
+vi.mock('../transcription.js', () => ({
+  transcribeAudioFile: vi.fn().mockResolvedValue({ transcript: 'Hello this is a voice message' }),
+}));
 
 // Mock child_process (used for osascript notification)
 vi.mock('child_process', () => ({
@@ -86,6 +97,7 @@ vi.mock('@whiskeysockets/baileys', () => {
       timedOut: 408,
       restartRequired: 515,
     },
+    downloadMediaMessage: vi.fn().mockResolvedValue(Buffer.from('fake-audio-data')),
     fetchLatestWaWebVersion: vi
       .fn()
       .mockResolvedValue({ version: [2, 3000, 0] }),
@@ -103,6 +115,7 @@ vi.mock('@whiskeysockets/baileys', () => {
 
 import { WhatsAppChannel, WhatsAppChannelOpts } from './whatsapp.js';
 import { getLastGroupSync, updateChatName, setLastGroupSync } from '../db.js';
+import { transcribeAudioFile } from '../transcription.js';
 
 // --- Test helpers ---
 
@@ -550,7 +563,7 @@ describe('WhatsAppChannel', () => {
       );
     });
 
-    it('handles message with no extractable text (e.g. voice note without caption)', async () => {
+    it('handles non-voice message with no extractable text (skips it)', async () => {
       const opts = createTestOpts();
       const channel = new WhatsAppChannel(opts);
 
@@ -565,14 +578,14 @@ describe('WhatsAppChannel', () => {
             fromMe: false,
           },
           message: {
-            audioMessage: { mimetype: 'audio/ogg; codecs=opus', ptt: true },
+            audioMessage: { mimetype: 'audio/ogg; codecs=opus', ptt: false },
           },
           pushName: 'Frank',
           messageTimestamp: Math.floor(Date.now() / 1000),
         },
       ]);
 
-      // Skipped — no text content to process
+      // Skipped — no text content and not a PTT voice message
       expect(opts.onMessage).not.toHaveBeenCalled();
     });
 
@@ -599,6 +612,134 @@ describe('WhatsAppChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'registered@g.us',
         expect.objectContaining({ sender_name: '5551234' }),
+      );
+    });
+  });
+
+  // --- Voice transcription ---
+
+  describe('voice transcription', () => {
+    it('transcribes voice messages via Whisper and delivers with transcript', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-voice-1',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            audioMessage: { mimetype: 'audio/ogg; codecs=opus', ptt: true },
+          },
+          pushName: 'Frank',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(transcribeAudioFile).toHaveBeenCalled();
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content: expect.stringContaining('[Voice: Hello this is a voice message]'),
+        }),
+      );
+    });
+
+    it('falls back when transcription returns no transcript', async () => {
+      vi.mocked(transcribeAudioFile).mockResolvedValueOnce({ error: 'OPENAI_API_KEY not set' });
+
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-voice-2',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            audioMessage: { mimetype: 'audio/ogg; codecs=opus', ptt: true },
+          },
+          pushName: 'Frank',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content: expect.stringContaining('[Voice message — transcription unavailable]'),
+        }),
+      );
+    });
+
+    it('falls back when download fails', async () => {
+      const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
+      vi.mocked(downloadMediaMessage).mockResolvedValueOnce(null as any);
+
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-voice-3',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            audioMessage: { mimetype: 'audio/ogg; codecs=opus', ptt: true },
+          },
+          pushName: 'Frank',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content: '[Voice message — download failed]',
+        }),
+      );
+    });
+
+    it('falls back when transcription throws', async () => {
+      vi.mocked(transcribeAudioFile).mockRejectedValueOnce(new Error('API error'));
+
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-voice-4',
+            remoteJid: 'registered@g.us',
+            participant: '5551234@s.whatsapp.net',
+            fromMe: false,
+          },
+          message: {
+            audioMessage: { mimetype: 'audio/ogg; codecs=opus', ptt: true },
+          },
+          pushName: 'Frank',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'registered@g.us',
+        expect.objectContaining({
+          content: '[Voice message — transcription failed]',
+        }),
       );
     });
   });

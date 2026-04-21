@@ -6,6 +6,7 @@ import {
   makeWASocket,
   Browsers,
   DisconnectReason,
+  downloadMediaMessage,
   fetchLatestWaWebVersion,
   makeCacheableSignalKeyStore,
   normalizeMessageContent,
@@ -13,6 +14,7 @@ import {
 } from '@whiskeysockets/baileys';
 import type {
   GroupMetadata,
+  WAMessage,
   WAMessageKey,
   WASocket,
   proto as ProtoTypes,
@@ -34,11 +36,9 @@ import {
   setLastGroupSync,
   updateChatName,
 } from '../db.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
 import { logger } from '../logger.js';
-import pino from 'pino';
-
-// Baileys requires a pino-compatible logger instance
-const baileysLogger = pino({ level: 'silent' });
+import { transcribeAudioFile } from '../transcription.js';
 import {
   Channel,
   OnInboundMessage,
@@ -46,6 +46,10 @@ import {
   RegisteredGroup,
 } from '../types.js';
 import { registerChannel, ChannelOpts } from './registry.js';
+import pino from 'pino';
+
+// Baileys requires a pino-compatible logger instance
+const baileysLogger = pino({ level: 'silent' });
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -282,6 +286,7 @@ export class WhatsAppChannel implements Channel {
           // Only deliver full message for registered groups
           const groups = this.opts.registeredGroups();
           if (groups[chatJid]) {
+            const group = groups[chatJid];
             let content =
               normalized.conversation ||
               normalized.extendedTextMessage?.text ||
@@ -298,8 +303,12 @@ export class WhatsAppChannel implements Channel {
               );
             }
 
+            // Check if this is a voice (PTT) message
+            const isVoice = normalized.audioMessage?.ptt === true;
+
             // Skip protocol messages with no text content (encryption keys, read receipts, etc.)
-            if (!content) continue;
+            // but allow voice messages through for transcription
+            if (!content && !isVoice) continue;
 
             const sender = msg.key.participant || msg.key.remoteJid || '';
             const senderName = msg.pushName || sender.split('@')[0];
@@ -312,6 +321,29 @@ export class WhatsAppChannel implements Channel {
             const isBotMessage = ASSISTANT_HAS_OWN_NUMBER
               ? fromMe
               : content.startsWith(`${ASSISTANT_NAME}:`);
+
+            // Transcribe voice messages before delivering
+            if (isVoice) {
+              try {
+                const msgId = msg.key.id || Date.now().toString();
+                const paths = await this.downloadVoiceMessage(
+                  msg,
+                  group.folder,
+                  msgId,
+                );
+                if (paths) {
+                  const result = await transcribeAudioFile(paths.hostPath);
+                  content = result.transcript
+                    ? `[Voice: ${result.transcript}] (${paths.containerPath})`
+                    : `[Voice message — transcription unavailable] (${paths.containerPath})`;
+                } else {
+                  content = '[Voice message — download failed]';
+                }
+              } catch (err) {
+                logger.error({ err, chatJid }, 'Voice transcription error');
+                content = '[Voice message — transcription failed]';
+              }
+            }
 
             this.opts.onMessage(chatJid, {
               id: msg.key.id || '',
@@ -521,6 +553,49 @@ export class WhatsAppChannel implements Channel {
       expiresAt: Date.now() + 60_000,
     });
     return normalized;
+  }
+
+  /**
+   * Download a WhatsApp voice message to the group's attachments directory.
+   * Returns both the container-relative path and the host absolute path,
+   * or null if the download fails.
+   */
+  private async downloadVoiceMessage(
+    msg: WAMessage,
+    groupFolder: string,
+    msgId: string,
+  ): Promise<{ containerPath: string; hostPath: string } | null> {
+    try {
+      const buffer = (await downloadMediaMessage(
+        msg,
+        'buffer',
+        {},
+        {
+          logger: baileysLogger,
+          reuploadRequest: this.sock.updateMediaMessage,
+        },
+      )) as Buffer;
+
+      if (!buffer || buffer.length === 0) {
+        logger.warn({ msgId }, 'Voice message download returned empty buffer');
+        return null;
+      }
+
+      const groupDir = resolveGroupFolderPath(groupFolder);
+      const attachDir = path.join(groupDir, 'attachments');
+      fs.mkdirSync(attachDir, { recursive: true });
+
+      const filename = `wa_voice_${msgId.replace(/[^a-zA-Z0-9]/g, '_')}.ogg`;
+      const hostPath = path.join(attachDir, filename);
+      fs.writeFileSync(hostPath, buffer);
+
+      const containerPath = `/workspace/group/attachments/${filename}`;
+      logger.info({ msgId, dest: hostPath, bytes: buffer.length }, 'WhatsApp voice downloaded');
+      return { containerPath, hostPath };
+    } catch (err) {
+      logger.error({ msgId, err }, 'Failed to download WhatsApp voice message');
+      return null;
+    }
   }
 
   private async flushOutgoingQueue(): Promise<void> {
