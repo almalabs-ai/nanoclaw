@@ -733,7 +733,9 @@ describe('send_whatsapp_message', () => {
 
   it('blocks send when caller is not authorized (non-main, no capability)', async () => {
     const calls: string[] = [];
-    deps.sendWhatsAppMessage = async (phone) => { calls.push(phone); };
+    deps.sendWhatsAppMessage = async (phone) => {
+      calls.push(phone);
+    };
 
     await processTaskIpc(
       { type: 'send_whatsapp_message', phone: '+447700900123', text: 'Test' },

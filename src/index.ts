@@ -757,7 +757,10 @@ async function main(): Promise<void> {
     sendWhatsAppMessage: async (phone, text) => {
       const whatsappCh = channels.find((ch) => ch.name === 'whatsapp');
       if (!whatsappCh) {
-        logger.warn({ phone }, 'send_whatsapp_message: WhatsApp channel not connected');
+        logger.warn(
+          { phone },
+          'send_whatsapp_message: WhatsApp channel not connected',
+        );
         return;
       }
       const jid = phone.replace(/\D/g, '') + '@s.whatsapp.net';

@@ -523,7 +523,11 @@ export async function processTaskIpc(
         }
       } else {
         logger.warn(
-          { phone: data.phone, text: data.text ? '<present>' : '<missing>', sourceGroup },
+          {
+            phone: data.phone,
+            text: data.text ? '<present>' : '<missing>',
+            sourceGroup,
+          },
           'send_whatsapp_message: missing required fields (phone, text)',
         );
       }
