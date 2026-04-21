@@ -5,6 +5,12 @@ description: Install the Almanda persona — renames the assistant from Andy to 
 
 # Add Almanda Core
 
+> **Status: archived — one-shot bootstrap, already applied.**
+>
+> Applied to the Alma fork on 2026-04-20 via merge commit `cd2f0ec`. The persona now lives directly in `groups/global/CLAUDE.md` on `main`, and subsequent improvements (e.g. capability-index fix in PR #1 on 2026-04-21) land there, not here. The `skill/add-almanda-core` branch was deleted after merge and is no longer on origin, upstream, or any local checkout — step 1 below would fail immediately if re-run.
+>
+> **Do not re-run on this fork.** This file is retained as historical documentation of what the bootstrap did. If you ever need to re-create the skill branch on a brand-new fork of vanilla upstream NanoClaw, see [Re-bootstrapping from scratch](#re-bootstrapping-from-scratch) at the bottom.
+
 Installs the Almanda persona layer as the base identity for all groups.
 
 ## What This Adds
@@ -105,3 +111,29 @@ Expected: Almanda describes the action and asks "Should I go ahead?" — does NO
 - Check container logs: `cat groups/main/logs/container-*.log | tail -30`
 - If global CLAUDE.md content is absent, confirm the `!containerInput.isMain` guard was removed in `container/agent-runner/src/index.ts`
 - Rebuild: `./container/build.sh && npm run build`
+
+---
+
+## Re-bootstrapping from scratch
+
+Only needed if you are bootstrapping Almanda on a **new** fork of vanilla upstream NanoClaw (not re-running on this fork). The `skill/add-almanda-core` branch no longer exists anywhere, so recreate it from the Alma fork's `main` history:
+
+```bash
+# On the target fork, branch off a vanilla upstream point
+git remote add alma https://github.com/almalabs-ai/nanoclaw.git
+git fetch alma
+
+# Cherry-pick the persona-install commits in order:
+#   11feaa4 — feat(persona): add-almanda-core — Almanda identity, operating rules, capability index
+#   29fc605 — fix(persona): add mcp__ prefixes to KB tools in capabilities table
+#   758fe69 — fix(persona): surface baseline capabilities in Almanda's capability index
+# Plus the almanda-ops container skill and the !isMain guard removal in
+# container/agent-runner/src/index.ts (drop `!containerInput.isMain && ` at line ~418).
+
+git checkout -b skill/add-almanda-core <vanilla-upstream-commit>
+git cherry-pick 11feaa4 29fc605 758fe69
+# Add container/skills/almanda-ops/ and the index.ts anchor edit if not captured.
+git push origin skill/add-almanda-core
+```
+
+In practice, the simpler path is to clone the Alma fork directly (`git clone https://github.com/almalabs-ai/nanoclaw.git`) — `main` already has the full persona + all fixes. This recipe is only relevant if you genuinely need to rebuild the bootstrap branch from vanilla NanoClaw.
