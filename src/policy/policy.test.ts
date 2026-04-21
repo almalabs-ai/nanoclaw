@@ -36,7 +36,7 @@ describe('loadPolicyConfig', () => {
     const p = writeConfig({
       capabilities: {
         'scheduler.crossGroup': ['admin'],
-        'register_group': ['admin'],
+        register_group: ['admin'],
         'rag.ask': '*',
       },
       unknown_sender: { roles: ['member'] },
@@ -73,22 +73,42 @@ describe('checkCapability', () => {
   };
 
   it('admin is allowed for scheduler.crossGroup', () => {
-    const result = checkCapability('admin@example.com', 'scheduler.crossGroup', ['admin'], adminOnlyCfg);
+    const result = checkCapability(
+      'admin@example.com',
+      'scheduler.crossGroup',
+      ['admin'],
+      adminOnlyCfg,
+    );
     expect(result).toBe(true);
   });
 
   it('member is denied for scheduler.crossGroup', () => {
-    const result = checkCapability('user@example.com', 'scheduler.crossGroup', ['member'], adminOnlyCfg);
+    const result = checkCapability(
+      'user@example.com',
+      'scheduler.crossGroup',
+      ['member'],
+      adminOnlyCfg,
+    );
     expect(result).toBe(false);
   });
 
   it('unknown capability returns deny (deny-by-default)', () => {
-    const result = checkCapability('user@example.com', 'nonexistent.cap', ['admin'], adminOnlyCfg);
+    const result = checkCapability(
+      'user@example.com',
+      'nonexistent.cap',
+      ['admin'],
+      adminOnlyCfg,
+    );
     expect(result).toBe(false);
   });
 
   it("'*' capability allows any role", () => {
-    const result = checkCapability('user@example.com', 'rag.ask', ['member'], publicCfg);
+    const result = checkCapability(
+      'user@example.com',
+      'rag.ask',
+      ['member'],
+      publicCfg,
+    );
     expect(result).toBe(true);
   });
 
@@ -98,17 +118,32 @@ describe('checkCapability', () => {
   });
 
   it('multi-role user is allowed if any role matches', () => {
-    const result = checkCapability('user@example.com', 'scheduler.crossGroup', ['member', 'admin'], adminOnlyCfg);
+    const result = checkCapability(
+      'user@example.com',
+      'scheduler.crossGroup',
+      ['member', 'admin'],
+      adminOnlyCfg,
+    );
     expect(result).toBe(true);
   });
 
   it('empty roles list is denied for restricted capability', () => {
-    const result = checkCapability(undefined, 'scheduler.crossGroup', [], adminOnlyCfg);
+    const result = checkCapability(
+      undefined,
+      'scheduler.crossGroup',
+      [],
+      adminOnlyCfg,
+    );
     expect(result).toBe(false);
   });
 
   it('undefined canonical_id is treated as unknown sender (uses provided roles)', () => {
-    const result = checkCapability(undefined, 'scheduler.crossGroup', ['member'], adminOnlyCfg);
+    const result = checkCapability(
+      undefined,
+      'scheduler.crossGroup',
+      ['member'],
+      adminOnlyCfg,
+    );
     expect(result).toBe(false);
   });
 });

@@ -32,12 +32,20 @@ export function startHealthServer(
   let version = 'unknown';
   try {
     const pkgUrl = new URL('../package.json', import.meta.url);
-    const pkg = JSON.parse(fs.readFileSync(pkgUrl, 'utf8')) as { version: string };
+    const pkg = JSON.parse(fs.readFileSync(pkgUrl, 'utf8')) as {
+      version: string;
+    };
     version = pkg.version;
-  } catch { /* non-fatal — version stays 'unknown' */ }
+  } catch {
+    /* non-fatal — version stays 'unknown' */
+  }
 
   // Remove stale socket file so bind succeeds after an unclean shutdown
-  try { fs.unlinkSync(socketPath); } catch { /* doesn't exist — fine */ }
+  try {
+    fs.unlinkSync(socketPath);
+  } catch {
+    /* doesn't exist — fine */
+  }
 
   const server = net.createServer((socket) => {
     const payload: HealthStatus = {
@@ -49,13 +57,21 @@ export function startHealthServer(
     socket.end(JSON.stringify(payload) + '\n');
   });
 
+  server.on('error', (err) => {
+    // Health server is opt-in and non-critical — log but do not crash
+    console.error('[health] server listen error:', err);
+  });
   server.listen(socketPath);
 
   return {
     stop: () =>
       new Promise<void>((resolve, reject) => {
         server.close((err) => {
-          try { fs.unlinkSync(socketPath); } catch { /* already gone */ }
+          try {
+            fs.unlinkSync(socketPath);
+          } catch {
+            /* already gone */
+          }
           if (err) reject(err);
           else resolve();
         });

@@ -55,7 +55,11 @@ function isValidPerson(entry: unknown): entry is Person {
     !e.roles.every((r) => typeof r === 'string')
   )
     return false;
-  if (!e.channels || typeof e.channels !== 'object' || Array.isArray(e.channels))
+  if (
+    !e.channels ||
+    typeof e.channels !== 'object' ||
+    Array.isArray(e.channels)
+  )
     return false;
   if (
     !Object.values(e.channels as object).every(

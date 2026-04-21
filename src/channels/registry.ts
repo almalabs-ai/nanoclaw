@@ -15,7 +15,10 @@ export type ChannelFactory = (opts: ChannelOpts) => Channel | null;
 
 const registry = new Map<string, ChannelFactory>();
 
-type IdentityWrapper = (name: string, factory: ChannelFactory) => ChannelFactory;
+type IdentityWrapper = (
+  name: string,
+  factory: ChannelFactory,
+) => ChannelFactory;
 let _identityWrapper: IdentityWrapper | null = null;
 
 export function setIdentityWrapper(fn: IdentityWrapper): void {

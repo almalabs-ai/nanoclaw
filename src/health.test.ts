@@ -8,7 +8,10 @@ import path from 'node:path';
 import { HEALTH_SOCKET_PATH } from './config.js';
 import { startHealthServer } from './health.js';
 
-const tmpSock = path.join(os.tmpdir(), `nanoclaw-health-test-${process.pid}.sock`);
+const tmpSock = path.join(
+  os.tmpdir(),
+  `nanoclaw-health-test-${process.pid}.sock`,
+);
 
 afterEach(() => {
   fs.rmSync(tmpSock, { force: true });
@@ -18,7 +21,9 @@ function readSocket(socketPath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const client = net.createConnection(socketPath, () => {
       let buf = '';
-      client.on('data', (d) => { buf += d.toString(); });
+      client.on('data', (d) => {
+        buf += d.toString();
+      });
       client.on('end', () => resolve(buf));
       client.on('error', reject);
     });
@@ -60,7 +65,10 @@ describe('startHealthServer', () => {
       registeredGroupsCount: 0,
     }));
 
-    const [a, b] = await Promise.all([readSocket(tmpSock), readSocket(tmpSock)]);
+    const [a, b] = await Promise.all([
+      readSocket(tmpSock),
+      readSocket(tmpSock),
+    ]);
     await srv.stop();
 
     expect((JSON.parse(a.trim()) as Record<string, unknown>).status).toBe('ok');
@@ -86,6 +94,8 @@ describe('startHealthServer', () => {
     }));
     const raw = await readSocket(tmpSock);
     await srv.stop();
-    expect((JSON.parse(raw.trim()) as Record<string, unknown>).status).toBe('ok');
+    expect((JSON.parse(raw.trim()) as Record<string, unknown>).status).toBe(
+      'ok',
+    );
   });
 });
