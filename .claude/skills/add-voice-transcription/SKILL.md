@@ -68,6 +68,18 @@ This branch adds:
 
 It does **not** add `src/transcription.ts` (already on main) or `OPENAI_API_KEY` to `.env.example` (already there).
 
+**⚠️ Runtime compatibility check (ALM-551):** Since ALM-551, `downloadFile` in `telegram.ts` and the internal helpers in this codebase return `{ containerPath, hostPath }` instead of a plain `string`. If the WhatsApp branch predates ALM-551, `whatsapp.ts` may assign the download result to a `string` variable — a silent runtime bug (TypeScript won't catch it across branches). After merging, confirm the WhatsApp voice handler destructures the result:
+
+```ts
+// ✅ correct (ALM-551+)
+const { containerPath, hostPath } = await downloadFile(...);
+
+// ❌ wrong (pre-ALM-551)
+const filePath = await downloadFile(...);  // filePath is now an object, not a string
+```
+
+If `whatsapp.ts` uses the old pattern, update the assignment before building.
+
 ### Validate
 
 ```bash

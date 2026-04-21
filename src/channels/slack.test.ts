@@ -1010,5 +1010,30 @@ describe('SlackChannel', () => {
 
       expect(opts.onMessage).not.toHaveBeenCalled();
     });
+
+    it('ignores file_share events with non-audio files (PDF, image, etc.)', async () => {
+      const opts = createTestOpts();
+      const channel = new SlackChannel(opts);
+      await channel.connect();
+
+      const event = createMessageEvent({
+        subtype: 'file_share',
+        text: 'please summarize this',
+        files: [
+          {
+            id: 'F_PDF_001',
+            name: 'report.pdf',
+            mimetype: 'application/pdf',
+            filetype: 'pdf',
+            url_private_download: 'https://files.slack.com/report.pdf',
+          },
+        ],
+      });
+      await triggerMessageEvent(event);
+      await flushPromises();
+
+      expect(opts.onMessage).not.toHaveBeenCalled();
+      expect(mockTranscribeAudioFile).not.toHaveBeenCalled();
+    });
   });
 });

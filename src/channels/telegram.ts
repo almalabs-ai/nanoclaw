@@ -277,14 +277,18 @@ export class TelegramChannel implements Channel {
         });
       };
 
-      // If we have a file_id, attempt to download; deliver asynchronously
+      // If we have a file_id, attempt to download; deliver asynchronously.
+      // Known limitation: transcription adds 1-3 s of latency, so a text
+      // message sent right after a voice note may be delivered to the agent
+      // first. The message timestamp reflects the original send time, which
+      // lets history layers re-order if needed.
       if (opts?.fileId) {
         const msgId = ctx.message.message_id.toString();
         const filename =
           opts.filename ||
           `${placeholder.replace(/[[\] ]/g, '').toLowerCase()}_${msgId}`;
-        this.downloadFile(opts.fileId, group.folder, filename).then(
-          async (paths) => {
+        this.downloadFile(opts.fileId, group.folder, filename)
+          .then(async (paths) => {
             if (!paths) {
               deliver(`${placeholder}${caption}`);
               return;
@@ -303,8 +307,10 @@ export class TelegramChannel implements Channel {
             } else {
               deliver(`${placeholder} (${paths.containerPath})${caption}`);
             }
-          },
-        );
+          })
+          .catch((err) => {
+            logger.error({ err, chatJid }, 'storeMedia async deliver failed');
+          });
         return;
       }
 
