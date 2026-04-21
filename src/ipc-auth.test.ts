@@ -730,4 +730,18 @@ describe('send_whatsapp_message', () => {
 
     expect(calls).toHaveLength(0);
   });
+
+  it('blocks send when caller is not authorized (non-main, no capability)', async () => {
+    const calls: string[] = [];
+    deps.sendWhatsAppMessage = async (phone) => { calls.push(phone); };
+
+    await processTaskIpc(
+      { type: 'send_whatsapp_message', phone: '+447700900123', text: 'Test' },
+      'other-group',
+      false, // isMain = false, no callerRoles/callerId = no capability
+      deps,
+    );
+
+    expect(calls).toHaveLength(0);
+  });
 });

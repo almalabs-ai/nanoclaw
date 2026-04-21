@@ -501,6 +501,13 @@ export async function processTaskIpc(
       break;
 
     case 'send_whatsapp_message':
+      if (!callerCanDo('send_whatsapp_message')) {
+        logger.warn(
+          { phone: data.phone, sourceGroup },
+          'send_whatsapp_message: unauthorized attempt blocked',
+        );
+        break;
+      }
       if (data.phone && data.text) {
         if (deps.sendWhatsAppMessage) {
           await deps.sendWhatsAppMessage(data.phone, data.text);
@@ -514,6 +521,11 @@ export async function processTaskIpc(
             'send_whatsapp_message: WhatsApp channel not available',
           );
         }
+      } else {
+        logger.warn(
+          { phone: data.phone, text: data.text ? '<present>' : '<missing>', sourceGroup },
+          'send_whatsapp_message: missing required fields (phone, text)',
+        );
       }
       break;
 
