@@ -4,6 +4,10 @@ All notable changes to NanoClaw will be documented in this file.
 
 For detailed release notes, see the [full changelog on the documentation site](https://docs.nanoclaw.dev/changelog).
 
+## [1.3.0] - 2026-04-21
+
+- Voice messages on Telegram and Slack are now automatically transcribed via OpenAI Whisper and delivered to the agent as `[Voice: <transcript>] (<path>)`. Set `OPENAI_API_KEY` in `.env` to enable. Falls back to `[Voice message — transcription unavailable]` if the key is absent or the API errors. Supports all languages (auto-detected by Whisper). WhatsApp voice transcription available separately via `/add-voice-transcription`.
+
 ## [1.2.36] - 2026-03-26
 
 - [BREAKING] Replaced pino logger with built-in logger. WhatsApp users must re-merge the WhatsApp fork to pick up the Baileys logger compatibility fix: `git fetch whatsapp main && git merge whatsapp/main`. If the `whatsapp` remote is not configured: `git remote add whatsapp https://github.com/qwibitai/nanoclaw-whatsapp.git`.
