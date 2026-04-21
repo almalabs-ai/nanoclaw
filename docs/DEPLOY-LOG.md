@@ -7,6 +7,7 @@ Format: `ISO-TS | TAG | FROM-TAG | STATUS | HOST`
 ## Log
 
 <!-- deploys go here — newest first -->
+- 2026-04-21T18:28:23Z | v1.4.0 | from 9a7d172 | ok | nanoclaw@46.101.149.155
 - 2026-04-21T12:08:00Z | v1.3.0 | from 3cec1a86 | ok | nanoclaw@46.101.149.155
 
 - 2026-04-21T08:53:02Z | PR#3 sdlc-infra (main@3cec1a8) | from 0c945e8 | ok | nanoclaw@46.101.149.155
