@@ -47,6 +47,7 @@ export interface ContainerInput {
   script?: string;
   callerId?: string; // canonical_id of the user who triggered this run
   callerRoles?: string[]; // roles of the triggering user
+  imageAttachments?: Array<{ relativePath: string; mediaType: string }>;
 }
 
 export interface ContainerOutput {

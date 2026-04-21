@@ -15,6 +15,7 @@ const _policyConfig = loadPolicyConfig();
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
+  sendWhatsAppMessage?: (phone: string, text: string) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -169,6 +170,8 @@ export async function processTaskIpc(
     groupFolder?: string;
     chatJid?: string;
     targetJid?: string;
+    phone?: string;
+    text?: string;
     // For register_group
     jid?: string;
     name?: string;
@@ -493,6 +496,39 @@ export async function processTaskIpc(
         logger.warn(
           { data },
           'Invalid register_group request - missing required fields',
+        );
+      }
+      break;
+
+    case 'send_whatsapp_message':
+      if (!callerCanDo('send_whatsapp_message')) {
+        logger.warn(
+          { phone: data.phone, sourceGroup },
+          'send_whatsapp_message: unauthorized attempt blocked',
+        );
+        break;
+      }
+      if (data.phone && data.text) {
+        if (deps.sendWhatsAppMessage) {
+          await deps.sendWhatsAppMessage(data.phone, data.text);
+          logger.info(
+            { phone: data.phone, sourceGroup },
+            'WhatsApp outbound message sent via IPC',
+          );
+        } else {
+          logger.warn(
+            { phone: data.phone, sourceGroup },
+            'send_whatsapp_message: WhatsApp channel not available',
+          );
+        }
+      } else {
+        logger.warn(
+          {
+            phone: data.phone,
+            text: data.text ? '<present>' : '<missing>',
+            sourceGroup,
+          },
+          'send_whatsapp_message: missing required fields (phone, text)',
         );
       }
       break;

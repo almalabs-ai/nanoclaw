@@ -503,6 +503,59 @@ Use available_groups.json to find the JID for a group. The folder name must be c
   },
 );
 
+server.tool(
+  'send_whatsapp_message',
+  `Send a WhatsApp message to any recipient by phone number. You are responsible for resolving the recipient's name to a phone number before calling this tool — use Slack lookup, Linear, or ask the user.
+
+Phone must be in international format, digits only (no + prefix, no spaces, no dashes):
+- UK: "447700900123"  (44 = country code, then 10 digits)
+- US: "14155551234"   (1 = country code, then 10 digits)
+- IL: "972501234567"  (972 = country code, then 9 digits)
+
+The WhatsApp channel must be running on the host for this to work. Available to the main group's agent regardless of which channel originated the conversation. Non-main groups require the 'send_whatsapp_message' capability granted in policy.json.`,
+  {
+    phone: z
+      .string()
+      .describe(
+        'Recipient phone number in international format, digits only (e.g. "447700900123"). No + prefix, no spaces, no dashes.',
+      ),
+    text: z.string().describe('Message text to send'),
+  },
+  async (args) => {
+    const normalised = args.phone.replace(/\D/g, '');
+    if (!normalised) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'Invalid phone number: must contain digits.',
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const data = {
+      type: 'send_whatsapp_message',
+      phone: normalised,
+      text: args.text,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    };
+
+    writeIpcFile(TASKS_DIR, data);
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `WhatsApp message send requested to +${normalised}.`,
+        },
+      ],
+    };
+  },
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);
