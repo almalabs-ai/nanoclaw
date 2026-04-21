@@ -4,6 +4,10 @@ All notable changes to NanoClaw will be documented in this file.
 
 For detailed release notes, see the [full changelog on the documentation site](https://docs.nanoclaw.dev/changelog).
 
+## [1.4.0] - 2026-04-21
+
+- WhatsApp is now a first-class channel (ALM-568). Supports text DM + groups, voice transcription (Whisper, same `transcribeAudioFile` path as Telegram/Slack), image vision (sharp → multimodal content blocks), PDF reading (poppler-utils in container via `pdf-reader` skill), and cross-channel outbound send (`send_whatsapp_message` MCP tool — main-group agent can send to any phone number). Almanda operates from a dedicated number in dedicated-number mode (`ASSISTANT_HAS_OWN_NUMBER=true`). Auth via pairing code (headless-friendly). Run `/add-whatsapp` to install on an existing deployment.
+
 ## [1.3.0] - 2026-04-21
 
 - Voice messages on Telegram and Slack are now automatically transcribed via OpenAI Whisper and delivered to the agent as `[Voice: <transcript>] (<path>)`. Set `OPENAI_API_KEY` in `.env` to enable. Falls back to `[Voice message — transcription unavailable]` if the key is absent or the API errors. Supports all languages (auto-detected by Whisper). WhatsApp voice transcription available separately via `/add-voice-transcription`.
