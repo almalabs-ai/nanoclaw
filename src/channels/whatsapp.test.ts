@@ -9,6 +9,12 @@ vi.mock('../config.js', () => ({
   ASSISTANT_NAME: 'Andy',
   ASSISTANT_HAS_OWN_NUMBER: false,
   GROUPS_DIR: '/tmp/test-groups',
+  DEFAULT_TRIGGER: '@Andy',
+  getTriggerPattern: (trigger?: string) =>
+    new RegExp(
+      `${(trigger || '@Andy').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
+      'i',
+    ),
 }));
 
 // Mock logger
@@ -87,6 +93,7 @@ function createFakeSocket() {
     sendMessage: vi.fn().mockResolvedValue(undefined),
     sendPresenceUpdate: vi.fn().mockResolvedValue(undefined),
     groupFetchAllParticipating: vi.fn().mockResolvedValue({}),
+    groupMetadata: vi.fn().mockResolvedValue({ participants: [] }),
     updateMediaMessage: vi.fn().mockResolvedValue(undefined),
     end: vi.fn(),
     // Expose the event emitter for triggering events in tests
@@ -152,6 +159,7 @@ function createTestOpts(
         added_at: '2024-01-01T00:00:00.000Z',
       },
     })),
+    onAutoRegister: vi.fn(),
     ...overrides,
   };
 }
@@ -1439,6 +1447,367 @@ describe('WhatsAppChannel', () => {
     it('does not expose prefixAssistantName (prefix handled internally)', () => {
       const channel = new WhatsAppChannel(createTestOpts());
       expect('prefixAssistantName' in channel).toBe(false);
+    });
+  });
+
+  // --- Auto-register unregistered group on @mention ---
+
+  describe('auto-register unregistered group', () => {
+    // Bot phone JID (from fakeSocket.user.id = '1234567890:1@s.whatsapp.net')
+    const BOT_PHONE_JID = '1234567890@s.whatsapp.net';
+    // Bot LID (from fakeSocket.user.lid = '9876543210:1@lid')
+    const BOT_LID = '9876543210';
+
+    const SENDER_JID = '5551234@s.whatsapp.net';
+    const NEW_GROUP_JID = 'new-group@g.us';
+    const MAIN_GROUP_JID = 'main@g.us';
+
+    function makeMainGroupOpts(
+      onAutoRegister: WhatsAppChannelOpts['onAutoRegister'],
+    ): WhatsAppChannelOpts {
+      return createTestOpts({
+        registeredGroups: vi.fn(() => ({
+          [MAIN_GROUP_JID]: {
+            name: 'Main Group',
+            folder: 'main',
+            trigger: '@Andy',
+            added_at: '2024-01-01T00:00:00.000Z',
+            isMain: true,
+          },
+        })),
+        onAutoRegister,
+      });
+    }
+
+    function makeMentionMessage(mentionedJid: string[]) {
+      return {
+        key: {
+          id: 'msg-mention-1',
+          remoteJid: NEW_GROUP_JID,
+          participant: SENDER_JID,
+          fromMe: false,
+        },
+        message: {
+          extendedTextMessage: {
+            text: 'Hey can you help?',
+            contextInfo: { mentionedJid },
+          },
+        },
+        pushName: 'Alice',
+        messageTimestamp: Math.floor(Date.now() / 1000),
+      };
+    }
+
+    function makeRegisteredGroup() {
+      return {
+        name: 'New Group',
+        folder: 'new-group',
+        trigger: '@Andy',
+        added_at: new Date().toISOString(),
+        requiresTrigger: true,
+      };
+    }
+
+    it('calls onAutoRegister when bot mentioned via phone JID and sender is in main group', async () => {
+      const autoRegGroup = makeRegisteredGroup();
+      const onAutoRegister = vi.fn().mockReturnValue(autoRegGroup);
+
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [{ id: SENDER_JID }],
+      });
+
+      const opts = makeMainGroupOpts(onAutoRegister);
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([makeMentionMessage([BOT_PHONE_JID])]);
+
+      expect(onAutoRegister).toHaveBeenCalledWith(
+        NEW_GROUP_JID,
+        expect.any(String),
+      );
+    });
+
+    it('delivers message after auto-register', async () => {
+      const autoRegGroup = makeRegisteredGroup();
+      const onAutoRegister = vi.fn().mockReturnValue(autoRegGroup);
+
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [{ id: SENDER_JID }],
+      });
+
+      const opts = makeMainGroupOpts(onAutoRegister);
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([makeMentionMessage([BOT_PHONE_JID])]);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        NEW_GROUP_JID,
+        expect.objectContaining({ chat_jid: NEW_GROUP_JID }),
+      );
+    });
+
+    it('calls onAutoRegister when bot mentioned via LID JID in contextInfo', async () => {
+      const autoRegGroup = makeRegisteredGroup();
+      const onAutoRegister = vi.fn().mockReturnValue(autoRegGroup);
+
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [{ id: SENDER_JID }],
+      });
+
+      const opts = makeMainGroupOpts(onAutoRegister);
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([makeMentionMessage([`${BOT_LID}@lid`])]);
+
+      expect(onAutoRegister).toHaveBeenCalled();
+    });
+
+    it('calls onAutoRegister when bot mentioned via LID text (@botLidUser in content)', async () => {
+      const autoRegGroup = makeRegisteredGroup();
+      const onAutoRegister = vi.fn().mockReturnValue(autoRegGroup);
+
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [{ id: SENDER_JID }],
+      });
+
+      const opts = makeMainGroupOpts(onAutoRegister);
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-lid-text',
+            remoteJid: NEW_GROUP_JID,
+            participant: SENDER_JID,
+            fromMe: false,
+          },
+          message: {
+            extendedTextMessage: {
+              text: `@${BOT_LID} can you help?`,
+              contextInfo: { mentionedJid: [] },
+            },
+          },
+          pushName: 'Alice',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(onAutoRegister).toHaveBeenCalled();
+    });
+
+    it('calls onAutoRegister when bot trigger pattern appears in content (@Andy)', async () => {
+      const autoRegGroup = makeRegisteredGroup();
+      const onAutoRegister = vi.fn().mockReturnValue(autoRegGroup);
+
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [{ id: SENDER_JID }],
+      });
+
+      const opts = makeMainGroupOpts(onAutoRegister);
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-display-name',
+            remoteJid: NEW_GROUP_JID,
+            participant: SENDER_JID,
+            fromMe: false,
+          },
+          message: { conversation: '@Andy can you help?' },
+          pushName: 'Alice',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(onAutoRegister).toHaveBeenCalled();
+    });
+
+    it('does not auto-register when message is not a bot mention', async () => {
+      const onAutoRegister = vi.fn();
+
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [{ id: SENDER_JID }],
+      });
+
+      const opts = makeMainGroupOpts(onAutoRegister);
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-no-mention',
+            remoteJid: NEW_GROUP_JID,
+            participant: SENDER_JID,
+            fromMe: false,
+          },
+          message: { conversation: 'Just chatting here, no mention' },
+          pushName: 'Alice',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(onAutoRegister).not.toHaveBeenCalled();
+      expect(opts.onMessage).not.toHaveBeenCalled();
+    });
+
+    it('does not auto-register for DMs (non-@g.us)', async () => {
+      const onAutoRegister = vi.fn();
+
+      const opts = createTestOpts({
+        registeredGroups: vi.fn(() => ({})),
+        onAutoRegister,
+      });
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-dm',
+            remoteJid: `${SENDER_JID}`,
+            fromMe: false,
+          },
+          message: { conversation: '@Andy hello from DM' },
+          pushName: 'Alice',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(onAutoRegister).not.toHaveBeenCalled();
+    });
+
+    it('does not auto-register when no main group is registered', async () => {
+      const onAutoRegister = vi.fn();
+
+      const opts = createTestOpts({
+        registeredGroups: vi.fn(() => ({})),
+        onAutoRegister,
+      });
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([makeMentionMessage([BOT_PHONE_JID])]);
+
+      expect(onAutoRegister).not.toHaveBeenCalled();
+    });
+
+    it('does not auto-register when sender is not in main group', async () => {
+      const onAutoRegister = vi.fn();
+
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [{ id: 'other-person@s.whatsapp.net' }],
+      });
+
+      const opts = makeMainGroupOpts(onAutoRegister);
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([makeMentionMessage([BOT_PHONE_JID])]);
+
+      expect(onAutoRegister).not.toHaveBeenCalled();
+    });
+
+    it('does not auto-register when fromMe is true', async () => {
+      const onAutoRegister = vi.fn();
+
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [{ id: SENDER_JID }],
+      });
+
+      const opts = makeMainGroupOpts(onAutoRegister);
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-from-me',
+            remoteJid: NEW_GROUP_JID,
+            participant: SENDER_JID,
+            fromMe: true,
+          },
+          message: { conversation: '@Andy test' },
+          pushName: 'Bot',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(onAutoRegister).not.toHaveBeenCalled();
+    });
+
+    it('logs WARN when message dropped from unregistered group', async () => {
+      const { logger } = await import('../logger.js');
+
+      const opts = createTestOpts({
+        registeredGroups: vi.fn(() => ({})),
+        onAutoRegister: vi.fn(),
+      });
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-dropped',
+            remoteJid: NEW_GROUP_JID,
+            participant: SENDER_JID,
+            fromMe: false,
+          },
+          message: { conversation: 'Hello world' },
+          pushName: 'Alice',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+        expect.objectContaining({ chatJid: NEW_GROUP_JID }),
+        expect.stringContaining('unregistered'),
+      );
+    });
+
+    it('does not log WARN twice for the same unregistered group within 60s', async () => {
+      const { logger } = await import('../logger.js');
+
+      const opts = createTestOpts({
+        registeredGroups: vi.fn(() => ({})),
+        onAutoRegister: vi.fn(),
+      });
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      const msg = {
+        key: {
+          id: 'msg-drop-rl',
+          remoteJid: NEW_GROUP_JID,
+          participant: SENDER_JID,
+          fromMe: false,
+        },
+        message: { conversation: 'Hello' },
+        pushName: 'Alice',
+        messageTimestamp: Math.floor(Date.now() / 1000),
+      };
+
+      vi.mocked(logger.warn).mockClear();
+      await triggerMessages([{ ...msg, key: { ...msg.key, id: 'id-1' } }]);
+      await triggerMessages([{ ...msg, key: { ...msg.key, id: 'id-2' } }]);
+
+      const warnCalls = vi
+        .mocked(logger.warn)
+        .mock.calls.filter(
+          ([obj]) =>
+            typeof obj === 'object' &&
+            obj !== null &&
+            'chatJid' in obj &&
+            (obj as { chatJid: string }).chatJid === NEW_GROUP_JID,
+        );
+      expect(warnCalls.length).toBe(1);
     });
   });
 });

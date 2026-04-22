@@ -28,6 +28,8 @@ const { proto } = createRequire(import.meta.url)('@whiskeysockets/baileys') as {
 import {
   ASSISTANT_HAS_OWN_NUMBER,
   ASSISTANT_NAME,
+  DEFAULT_TRIGGER,
+  getTriggerPattern,
   GROUPS_DIR,
   STORE_DIR,
 } from '../config.js';
@@ -59,6 +61,16 @@ export interface WhatsAppChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
+  /**
+   * Called when the bot is mentioned in an unregistered group whose participants
+   * overlap with the main group. Implementations should register the group and
+   * return the RegisteredGroup record so message delivery can proceed immediately.
+   * Returning undefined means "decline to register" (message is dropped).
+   */
+  onAutoRegister?: (
+    chatJid: string,
+    subject: string,
+  ) => RegisteredGroup | undefined;
 }
 
 export class WhatsAppChannel implements Channel {
@@ -81,6 +93,8 @@ export class WhatsAppChannel implements Channel {
   private botLidUser?: string;
   /** Resolve the initial connect() once the first successful open happens. */
   private pendingFirstOpen?: () => void;
+  /** Rate-limit map for unregistered-group drop WARNs: JID → last-logged epoch ms. */
+  private unregisteredDropLog = new Map<string, number>();
 
   private opts: WhatsAppChannelOpts;
 
@@ -277,10 +291,28 @@ export class WhatsAppChannel implements Channel {
             isGroup,
           );
 
-          // Only deliver full message for registered groups
+          const fromMe = msg.key.fromMe || false;
+          const sender = msg.key.participant || msg.key.remoteJid || '';
+          const senderName = msg.pushName || sender.split('@')[0];
+
+          // Get registered group — try auto-register if unregistered group and bot is mentioned
           const groups = this.opts.registeredGroups();
-          if (groups[chatJid]) {
-            const group = groups[chatJid];
+          let group: RegisteredGroup | undefined = groups[chatJid];
+
+          if (!group && isGroup && !fromMe) {
+            const prelimContent =
+              normalized.conversation ||
+              normalized.extendedTextMessage?.text ||
+              '';
+            if (this.isBotMentioned(normalized, prelimContent)) {
+              group = await this.tryAutoRegister(chatJid, sender, groups);
+              // tryAutoRegister logs its own WARN on no-overlap; no drop log needed here
+            } else {
+              this.logUnregisteredDrop(chatJid);
+            }
+          }
+
+          if (group) {
             let content =
               normalized.conversation ||
               normalized.extendedTextMessage?.text ||
@@ -352,10 +384,6 @@ export class WhatsAppChannel implements Channel {
             // but allow voice messages through for transcription
             if (!content && !isVoice) continue;
 
-            const sender = msg.key.participant || msg.key.remoteJid || '';
-            const senderName = msg.pushName || sender.split('@')[0];
-
-            const fromMe = msg.key.fromMe || false;
             // Detect bot messages: with own number, fromMe is reliable
             // since only the bot sends from that number.
             // With shared number, bot messages carry the assistant name prefix
@@ -399,16 +427,6 @@ export class WhatsAppChannel implements Channel {
               is_from_me: fromMe,
               is_bot_message: isBotMessage,
             });
-          } else if (chatJid !== rawJid) {
-            // LID translation produced a JID that doesn't match any registered group
-            logger.warn(
-              {
-                rawJid,
-                translatedJid: chatJid,
-                registeredJids: Object.keys(groups),
-              },
-              'Message JID not found in registered groups after translation',
-            );
           }
         } catch (err) {
           logger.error(
@@ -418,6 +436,110 @@ export class WhatsAppChannel implements Channel {
         }
       }
     });
+  }
+
+  /** Returns true if the bot is mentioned in this message content or contextInfo. */
+  private isBotMentioned(
+    msg: ReturnType<typeof normalizeMessageContent>,
+    content: string,
+  ): boolean {
+    if (!msg) return false;
+
+    // Authoritative: check contextInfo.mentionedJid (strips device suffix before comparing)
+    const mentionedJids: string[] =
+      (msg as any).extendedTextMessage?.contextInfo?.mentionedJid ?? [];
+    if (this.sock?.user) {
+      const botPhone = this.sock.user.id.replace(/:(\d+)@/, '@');
+      const botLid = this.sock.user.lid?.replace(/:(\d+)@/, '@');
+      for (const jid of mentionedJids) {
+        const normJid = jid.replace(/:(\d+)@/, '@');
+        if (normJid === botPhone || (botLid && normJid === botLid)) {
+          return true;
+        }
+      }
+    }
+
+    // Fallback: raw LID text match (e.g. "@9876543210" in message body)
+    if (this.botLidUser && content.includes(`@${this.botLidUser}`)) return true;
+
+    // Fallback: display-name trigger pattern (e.g. "@Andy")
+    return getTriggerPattern(DEFAULT_TRIGGER).test(content);
+  }
+
+  /**
+   * Rate-limited WARN for messages dropped from unregistered groups.
+   * Logs at most once per JID per 60 seconds.
+   */
+  private logUnregisteredDrop(chatJid: string): void {
+    const now = Date.now();
+    if (now - (this.unregisteredDropLog.get(chatJid) ?? 0) < 60_000) return;
+    this.unregisteredDropLog.set(chatJid, now);
+    logger.warn(
+      { chatJid },
+      'Message in unregistered group, dropping. Register via /add-whatsapp.',
+    );
+  }
+
+  /**
+   * Checks whether the sender is a participant of any main group.
+   * If yes and onAutoRegister is available, calls it and returns the new group.
+   */
+  private async tryAutoRegister(
+    chatJid: string,
+    senderJid: string,
+    registeredGroups: Record<string, RegisteredGroup>,
+  ): Promise<RegisteredGroup | undefined> {
+    if (!this.opts.onAutoRegister) return undefined;
+
+    const mainGroups = Object.entries(registeredGroups).filter(
+      ([, g]) => g.isMain === true,
+    );
+    if (mainGroups.length === 0) return undefined;
+
+    try {
+      const normSender = senderJid.replace(/:(\d+)@/, '@');
+
+      for (const [mainJid] of mainGroups) {
+        let mainMeta: GroupMetadata | undefined;
+        try {
+          mainMeta = await this.sock.groupMetadata(mainJid);
+        } catch {
+          continue;
+        }
+
+        for (const p of mainMeta.participants) {
+          const resolved = await this.translateJid(p.id);
+          if (resolved.replace(/:(\d+)@/, '@') === normSender) {
+            // Sender is a main-group member — auto-register
+            let subject = chatJid;
+            try {
+              const newMeta = await this.sock.groupMetadata(chatJid);
+              subject = newMeta.subject || chatJid;
+            } catch {
+              /* fallback to chatJid */
+            }
+
+            const group = this.opts.onAutoRegister(chatJid, subject);
+            if (group) {
+              logger.info(
+                { chatJid, subject, mainJid },
+                'Auto-registered group on mention from main-group member',
+              );
+            }
+            return group;
+          }
+        }
+      }
+
+      logger.warn(
+        { chatJid, mainGroupCount: mainGroups.length },
+        'Mention in unregistered group — no main-group overlap, dropping. Register manually via /add-whatsapp.',
+      );
+      return undefined;
+    } catch (err) {
+      logger.warn({ chatJid, err }, 'Auto-register overlap check failed');
+      return undefined;
+    }
   }
 
   async sendMessage(jid: string, text: string): Promise<void> {

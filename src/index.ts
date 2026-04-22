@@ -50,7 +50,7 @@ import {
   storeMessage,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
-import { resolveGroupFolderPath } from './group-folder.js';
+import { resolveGroupFolderPath, slugifyGroupSubject } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import {
@@ -708,6 +708,21 @@ async function main(): Promise<void> {
       isGroup?: boolean,
     ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     registeredGroups: () => registeredGroups,
+    onAutoRegister: (chatJid: string, subject: string) => {
+      const existingFolders = new Set(
+        Object.values(registeredGroups).map((g) => g.folder),
+      );
+      const folder = slugifyGroupSubject(subject, existingFolders);
+      const group = {
+        name: subject || chatJid,
+        folder,
+        trigger: DEFAULT_TRIGGER,
+        added_at: new Date().toISOString(),
+        requiresTrigger: true as const,
+      };
+      registerGroup(chatJid, group);
+      return group;
+    },
   };
 
   // Create and connect all registered channels.
