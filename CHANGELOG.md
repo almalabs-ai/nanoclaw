@@ -4,6 +4,10 @@ All notable changes to NanoClaw will be documented in this file.
 
 For detailed release notes, see the [full changelog on the documentation site](https://docs.nanoclaw.dev/changelog).
 
+## [1.4.2] - 2026-04-22
+
+- Auto-registered WhatsApp groups now have their OneCLI agent secret mode set to `all` automatically, so ANTHROPIC_API_KEY and other shared credentials are available without manual configuration. Fixes silent agent failures in new groups.
+
 ## [1.4.1] - 2026-04-22
 
 - WhatsApp: Almanda now auto-registers new groups when she is @mentioned by a main-group participant. Previously, every message in an unregistered group was silently dropped; now the first @mention from a trusted user onboards the group automatically and she replies immediately. Non-main-group @mentions produce a visible WARN log with the group JID so operators can register manually.
