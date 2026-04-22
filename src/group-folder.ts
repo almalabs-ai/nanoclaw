@@ -35,6 +35,31 @@ export function resolveGroupFolderPath(folder: string): string {
   return groupPath;
 }
 
+/**
+ * Converts a WhatsApp group subject into a valid folder name.
+ * Lowercases, strips non-alphanumeric chars, collapses hyphens, truncates to 40 chars.
+ * If existingFolders is provided, suffixes with -2, -3, … until unique.
+ */
+export function slugifyGroupSubject(
+  subject: string,
+  existingFolders?: Set<string>,
+): string {
+  const base =
+    subject
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'wa-group';
+
+  if (!existingFolders || !existingFolders.has(base)) return base;
+
+  for (let n = 2; n <= 99; n++) {
+    const candidate = `${base.slice(0, 37)}-${n}`;
+    if (!existingFolders.has(candidate)) return candidate;
+  }
+  return `${base.slice(0, 37)}-99`;
+}
+
 export function resolveGroupIpcPath(folder: string): string {
   assertValidGroupFolder(folder);
   const ipcBaseDir = path.resolve(DATA_DIR, 'ipc');
