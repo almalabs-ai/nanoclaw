@@ -504,38 +504,60 @@ export class WhatsAppChannel implements Channel {
       const normSender = resolvedSender.replace(/:(\d+)@/, '@');
 
       for (const [mainJid] of mainGroups) {
-        let mainMeta: GroupMetadata | undefined;
-        try {
-          mainMeta = await this.sock.groupMetadata(mainJid);
-        } catch (err) {
-          logger.debug(
-            { mainJid, err },
-            'Could not fetch main-group metadata for overlap check',
-          );
-          continue;
+        // Skip non-WhatsApp main groups (Slack, Telegram) — they have no WA participants.
+        const isWhatsAppJid =
+          mainJid.endsWith('@g.us') ||
+          mainJid.endsWith('@s.whatsapp.net') ||
+          mainJid.endsWith('@lid');
+        if (!isWhatsAppJid) continue;
+
+        let matched = false;
+
+        if (mainJid.endsWith('@g.us')) {
+          // WhatsApp group: fetch participant list and compare
+          let mainMeta: GroupMetadata | undefined;
+          try {
+            mainMeta = await this.sock.groupMetadata(mainJid);
+          } catch (err) {
+            logger.debug(
+              { mainJid, err },
+              'Could not fetch main-group metadata for overlap check',
+            );
+            continue;
+          }
+          for (const p of mainMeta.participants) {
+            const resolved = await this.translateJid(p.id);
+            if (resolved.replace(/:(\d+)@/, '@') === normSender) {
+              matched = true;
+              break;
+            }
+          }
+        } else {
+          // WhatsApp DM main group: compare sender user ID directly with the DM peer.
+          // sock.groupMetadata() does not work for DMs.
+          const resolvedMain = await this.translateJid(mainJid);
+          const mainUser = resolvedMain.split(':')[0].split('@')[0];
+          const senderUser = normSender.split('@')[0].split(':')[0];
+          matched = mainUser === senderUser;
         }
 
-        for (const p of mainMeta.participants) {
-          const resolved = await this.translateJid(p.id);
-          if (resolved.replace(/:(\d+)@/, '@') === normSender) {
-            // Sender is a main-group member — auto-register
-            let subject = chatJid;
-            try {
-              const newMeta = await this.sock.groupMetadata(chatJid);
-              subject = newMeta.subject || chatJid;
-            } catch {
-              /* fallback to chatJid */
-            }
-
-            const group = this.opts.onAutoRegister(chatJid, subject);
-            if (group) {
-              logger.info(
-                { chatJid, subject, mainJid },
-                'Auto-registered group on mention from main-group member',
-              );
-            }
-            return group;
+        if (matched) {
+          let subject = chatJid;
+          try {
+            const newMeta = await this.sock.groupMetadata(chatJid);
+            subject = newMeta.subject || chatJid;
+          } catch {
+            /* fallback to chatJid */
           }
+
+          const group = this.opts.onAutoRegister(chatJid, subject);
+          if (group) {
+            logger.info(
+              { chatJid, subject, mainJid },
+              'Auto-registered group on mention from main-group member',
+            );
+          }
+          return group;
         }
       }
 

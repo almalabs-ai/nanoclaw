@@ -1906,5 +1906,68 @@ describe('WhatsAppChannel', () => {
       // onAutoRegister called only once for the first message; second message sees the group registered
       expect(callCount).toBe(1);
     });
+
+    it('calls onAutoRegister when the main group is a WhatsApp DM (not @g.us)', async () => {
+      // Almanda's "main group" is a DM with the owner, not a @g.us group.
+      // sock.groupMetadata() fails for DMs — the overlap check must compare user IDs directly.
+      const autoRegGroup = makeRegisteredGroup();
+      const onAutoRegister = vi.fn().mockReturnValue(autoRegGroup);
+
+      const opts = createTestOpts({
+        registeredGroups: vi.fn(() => ({
+          // DM main group — @lid JID, not @g.us
+          [`${SENDER_JID.split('@')[0]}@lid`]: {
+            name: 'Owner DM',
+            folder: 'whatsapp-main',
+            trigger: '@Andy',
+            added_at: '2024-01-01T00:00:00.000Z',
+            isMain: true,
+          },
+        })),
+        onAutoRegister,
+      });
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      // groupMetadata should NOT be called for a DM main group
+      fakeSocket.groupMetadata.mockRejectedValue(new Error('not a group'));
+
+      await triggerMessages([makeMentionMessage([BOT_PHONE_JID])]);
+
+      expect(onAutoRegister).toHaveBeenCalledWith(
+        NEW_GROUP_JID,
+        expect.any(String),
+      );
+    });
+
+    it('does not auto-register when Slack/Telegram main groups are the only isMain entries', async () => {
+      const onAutoRegister = vi.fn();
+
+      const opts = createTestOpts({
+        registeredGroups: vi.fn(() => ({
+          'slack:C0ATX3FCG4D': {
+            name: 'Slack main',
+            folder: 'slack-main',
+            trigger: '@Andy',
+            added_at: '2024-01-01T00:00:00.000Z',
+            isMain: true,
+          },
+          'tg:12345': {
+            name: 'Telegram main',
+            folder: 'tg-main',
+            trigger: '@Andy',
+            added_at: '2024-01-01T00:00:00.000Z',
+            isMain: true,
+          },
+        })),
+        onAutoRegister,
+      });
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([makeMentionMessage([BOT_PHONE_JID])]);
+
+      expect(onAutoRegister).not.toHaveBeenCalled();
+    });
   });
 });
