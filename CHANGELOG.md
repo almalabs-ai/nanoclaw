@@ -4,6 +4,10 @@ All notable changes to NanoClaw will be documented in this file.
 
 For detailed release notes, see the [full changelog on the documentation site](https://docs.nanoclaw.dev/changelog).
 
+## [1.4.4] - 2026-04-22
+
+- WhatsApp: auto-register now correctly handles setups where the main "control group" is a DM rather than a @g.us group. Previously, the trust overlap check always failed for DM-based setups (sock.groupMetadata throws for DMs), causing every @mention in new groups to be silently dropped. The sender's user ID is now compared directly against the DM peer JID.
+
 ## [1.4.3] - 2026-04-22
 
 - WhatsApp: `sendMessage` to a group no longer hangs indefinitely when Baileys can't complete sender-key distribution. A 30-second timeout wraps the send; on timeout the message is queued and a WARN is logged — same recovery path as a disconnected-socket send.
