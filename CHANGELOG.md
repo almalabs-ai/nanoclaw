@@ -4,6 +4,10 @@ All notable changes to NanoClaw will be documented in this file.
 
 For detailed release notes, see the [full changelog on the documentation site](https://docs.nanoclaw.dev/changelog).
 
+## [1.4.3] - 2026-04-22
+
+- WhatsApp: `sendMessage` to a group no longer hangs indefinitely when Baileys can't complete sender-key distribution. A 30-second timeout wraps the send; on timeout the message is queued and a WARN is logged — same recovery path as a disconnected-socket send.
+
 ## [1.4.2] - 2026-04-22
 
 - Auto-registered WhatsApp groups now have their OneCLI agent secret mode set to `all` automatically, so ANTHROPIC_API_KEY and other shared credentials are available without manual configuration. Fixes silent agent failures in new groups.
