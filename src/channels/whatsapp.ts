@@ -303,6 +303,9 @@ export class WhatsAppChannel implements Channel {
             const prelimContent =
               normalized.conversation ||
               normalized.extendedTextMessage?.text ||
+              normalized.imageMessage?.caption ||
+              normalized.videoMessage?.caption ||
+              normalized.documentMessage?.caption ||
               '';
             if (this.isBotMentioned(normalized, prelimContent)) {
               group = await this.tryAutoRegister(chatJid, sender, groups);
@@ -497,13 +500,18 @@ export class WhatsAppChannel implements Channel {
     if (mainGroups.length === 0) return undefined;
 
     try {
-      const normSender = senderJid.replace(/:(\d+)@/, '@');
+      const resolvedSender = await this.translateJid(senderJid);
+      const normSender = resolvedSender.replace(/:(\d+)@/, '@');
 
       for (const [mainJid] of mainGroups) {
         let mainMeta: GroupMetadata | undefined;
         try {
           mainMeta = await this.sock.groupMetadata(mainJid);
-        } catch {
+        } catch (err) {
+          logger.debug(
+            { mainJid, err },
+            'Could not fetch main-group metadata for overlap check',
+          );
           continue;
         }
 

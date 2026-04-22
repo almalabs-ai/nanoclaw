@@ -1809,5 +1809,102 @@ describe('WhatsAppChannel', () => {
         );
       expect(warnCalls.length).toBe(1);
     });
+
+    it('calls onAutoRegister when sender participant JID is a LID that maps to a main-group member', async () => {
+      // Sender's participant JID arrives as a LID; lidToPhoneMap resolves it to phone JID
+      // which matches the main group participant. Without translateJid on senderJid, this fails.
+      const SENDER_LID_JID = '5559876@lid';
+      const autoRegGroup = makeRegisteredGroup();
+      const onAutoRegister = vi.fn().mockReturnValue(autoRegGroup);
+
+      // Main group participant stored as phone JID
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [{ id: SENDER_JID }],
+      });
+
+      const opts = makeMainGroupOpts(onAutoRegister);
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      // Seed the LID→phone mapping (simulates what chats.phoneNumberShare or senderPn does)
+      (channel as any).setLidPhoneMapping('5559876', SENDER_JID);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-lid-sender',
+            remoteJid: NEW_GROUP_JID,
+            participant: SENDER_LID_JID,
+            fromMe: false,
+          },
+          message: {
+            extendedTextMessage: {
+              text: 'Hey',
+              contextInfo: { mentionedJid: [BOT_PHONE_JID] },
+            },
+          },
+          pushName: 'Alice',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect(onAutoRegister).toHaveBeenCalled();
+    });
+
+    it('onAutoRegister is not called twice if group was already registered by a concurrent message', async () => {
+      const autoRegGroup = makeRegisteredGroup();
+      let callCount = 0;
+      const onAutoRegister = vi.fn().mockImplementation(() => {
+        callCount++;
+        return autoRegGroup;
+      });
+
+      fakeSocket.groupMetadata.mockResolvedValue({
+        participants: [{ id: SENDER_JID }],
+      });
+
+      // Simulate: after first onAutoRegister call, registeredGroups now contains the group
+      const registeredGroupsMap: Record<string, object> = {};
+      const registeredGroupsFn = vi.fn().mockImplementation(() => ({
+        [MAIN_GROUP_JID]: {
+          name: 'Main Group',
+          folder: 'main',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+          isMain: true,
+        },
+        ...registeredGroupsMap,
+      }));
+      const idempotentAutoRegister = vi
+        .fn()
+        .mockImplementation((chatJid: string, subject: string) => {
+          if (registeredGroupsMap[chatJid]) return registeredGroupsMap[chatJid];
+          const group = onAutoRegister(chatJid, subject);
+          if (group) registeredGroupsMap[chatJid] = group;
+          return group;
+        });
+
+      const opts = createTestOpts({
+        registeredGroups: registeredGroupsFn,
+        onAutoRegister: idempotentAutoRegister,
+      });
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      // Two messages arrive for same unregistered group (simulating concurrent upsert)
+      await triggerMessages([
+        makeMentionMessage([BOT_PHONE_JID]),
+        {
+          ...makeMentionMessage([BOT_PHONE_JID]),
+          key: {
+            ...makeMentionMessage([BOT_PHONE_JID]).key,
+            id: 'msg-mention-2',
+          },
+        },
+      ]);
+
+      // onAutoRegister called only once for the first message; second message sees the group registered
+      expect(callCount).toBe(1);
+    });
   });
 });

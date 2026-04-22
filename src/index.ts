@@ -709,6 +709,7 @@ async function main(): Promise<void> {
     ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     registeredGroups: () => registeredGroups,
     onAutoRegister: (chatJid: string, subject: string) => {
+      if (registeredGroups[chatJid]) return registeredGroups[chatJid];
       const existingFolders = new Set(
         Object.values(registeredGroups).map((g) => g.folder),
       );
