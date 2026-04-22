@@ -1373,6 +1373,11 @@ describe('WhatsAppChannel', () => {
       expect(channel.ownsJid('tg:12345')).toBe(false);
     });
 
+    it('owns @lid JIDs (WhatsApp multi-device protocol)', () => {
+      const channel = new WhatsAppChannel(createTestOpts());
+      expect(channel.ownsJid('109882493673590@lid')).toBe(true);
+    });
+
     it('does not own unknown JID formats', () => {
       const channel = new WhatsAppChannel(createTestOpts());
       expect(channel.ownsJid('random-string')).toBe(false);

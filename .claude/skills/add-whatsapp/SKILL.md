@@ -220,6 +220,16 @@ node -e "const c=JSON.parse(require('fs').readFileSync('store/auth/creds.json','
 
 **DM with bot:** Ask for the bot's phone number. JID = `NUMBER@s.whatsapp.net`
 
+> **⚠️ Multi-device JID warning:** Modern WhatsApp accounts (multi-device enabled) may send messages with a LID JID (e.g. `109882493673590@lid`) rather than a phone JID. If the registered JID produces no responses after the bot is running:
+>
+> 1. Have the user send any message to the bot number (it will be stored even if unregistered)
+> 2. Query the chats DB to find the actual arriving JID:
+>    ```bash
+>    npx tsx -e "import {initDatabase,getAllChats} from './dist/db.js'; initDatabase(); getAllChats().filter(c=>c.channel==='whatsapp').forEach(c=>console.log(c.jid, c.last_message_time))"
+>    ```
+> 3. Use the JID from the most recent whatsapp entry for registration (it may be a `@lid` JID)
+> 4. Re-run the registration step with that JID
+
 **Group (solo, existing):** Run group sync and list available groups:
 
 ```bash
