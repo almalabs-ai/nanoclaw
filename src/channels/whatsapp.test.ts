@@ -1970,4 +1970,59 @@ describe('WhatsAppChannel', () => {
       expect(onAutoRegister).not.toHaveBeenCalled();
     });
   });
+
+  // --- Group participant LID→phone mapping via senderPn ---
+
+  describe('group participant LID resolution via senderPn', () => {
+    it('maps group participant @lid to phone when senderPn is present', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      const PARTICIPANT_LID = '9998887776@lid';
+      const PARTICIPANT_PHONE = '972501234567';
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-lid-group',
+            remoteJid: 'registered@g.us',
+            participant: PARTICIPANT_LID,
+            fromMe: false,
+            // @ts-expect-error senderPn is a newer WA protocol field
+            senderPn: PARTICIPANT_PHONE,
+          },
+          message: { conversation: 'Hello' },
+          pushName: 'Bob',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      // The LID should now be mapped to the phone JID
+      const mapped = (channel as any).lidToPhoneMap['9998887776'];
+      expect(mapped).toBe(`${PARTICIPANT_PHONE}@s.whatsapp.net`);
+    });
+
+    it('does not map when senderPn is absent', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      await triggerMessages([
+        {
+          key: {
+            id: 'msg-lid-no-pn',
+            remoteJid: 'registered@g.us',
+            participant: '1112223334@lid',
+            fromMe: false,
+          },
+          message: { conversation: 'Hello' },
+          pushName: 'Bob',
+          messageTimestamp: Math.floor(Date.now() / 1000),
+        },
+      ]);
+
+      expect((channel as any).lidToPhoneMap['1112223334']).toBeUndefined();
+    });
+  });
 });

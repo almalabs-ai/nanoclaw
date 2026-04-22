@@ -275,6 +275,22 @@ export class WhatsAppChannel implements Channel {
               { lidJid: rawJid, phoneJid },
               'Translated LID via senderPn',
             );
+
+            // For group messages, also extract senderPn for the participant JID.
+            // Group message senders use @lid identities; capturing senderPn progressively
+            // builds the LID→phone map so getNormalizedGroupMetadata can include them.
+          } else if (rawJid.endsWith('@g.us')) {
+            const participantJid = msg.key.participant;
+            if (participantJid?.endsWith('@lid') && (msg.key as any).senderPn) {
+              const lidUser = participantJid.split('@')[0].split(':')[0];
+              const pn = (msg.key as any).senderPn as string;
+              const phoneJid = pn.includes('@') ? pn : `${pn}@s.whatsapp.net`;
+              this.setLidPhoneMapping(lidUser, phoneJid);
+              logger.info(
+                { lidUser, phoneJid },
+                'Mapped group participant LID to phone via senderPn',
+              );
+            }
           }
 
           const timestamp = new Date(
@@ -757,12 +773,28 @@ export class WhatsAppChannel implements Channel {
     }
 
     const metadata = await this.sock.groupMetadata(jid);
-    const participants = await Promise.all(
-      metadata.participants.map(async (participant) => ({
-        ...participant,
-        id: await this.translateJid(participant.id),
-      })),
+    // Translate each participant's LID to phone JID where possible.
+    // Participants whose LID cannot be resolved are EXCLUDED from the list:
+    // passing an unresolved LID through Baileys causes it to encode the LID
+    // user-id as @s.whatsapp.net (a fake JID), which makes assertSessions fail
+    // with "not-acceptable" from the WA server (Baileys 6.17.16 bug, messages-send.js:334).
+    const resolved = await Promise.all(
+      metadata.participants.map(async (participant) => {
+        const translatedId = await this.translateJid(participant.id);
+        if (translatedId.endsWith('@lid')) return null; // unresolvable — exclude
+        return { ...participant, id: translatedId };
+      }),
     );
+    const participants = resolved.filter(
+      (p): p is NonNullable<typeof p> => p !== null,
+    );
+    const excludedCount = resolved.length - participants.length;
+    if (excludedCount > 0) {
+      logger.debug(
+        { jid, excludedCount },
+        'Excluded unresolvable @lid participants from group metadata — they will be included once their LID is mapped',
+      );
+    }
     const normalized = { ...metadata, participants };
     const mappedCount = participants.filter(
       (participant, index) =>
@@ -770,7 +802,12 @@ export class WhatsAppChannel implements Channel {
     ).length;
 
     logger.info(
-      { jid, participantCount: participants.length, mappedCount },
+      {
+        jid,
+        participantCount: participants.length,
+        mappedCount,
+        excludedCount,
+      },
       'Prepared normalized group metadata for send',
     );
 
