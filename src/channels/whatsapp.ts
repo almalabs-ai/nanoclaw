@@ -568,7 +568,22 @@ export class WhatsAppChannel implements Channel {
       return;
     }
     try {
-      const sent = await this.sock.sendMessage(jid, { text: prefixed });
+      // Baileys sendMessage to a group can hang indefinitely (no built-in timeout)
+      // if the sender-key distribution ACK never arrives from WA servers.
+      // Race against a 30s timeout so failures surface as WARN + queue entry.
+      const SEND_TIMEOUT_MS = 30_000;
+      const sent = await Promise.race([
+        this.sock.sendMessage(jid, { text: prefixed }),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(`sendMessage timeout after ${SEND_TIMEOUT_MS}ms`),
+              ),
+            SEND_TIMEOUT_MS,
+          ),
+        ),
+      ]);
       // Cache for retry requests (recipient may ask us to re-encrypt)
       if (sent?.key?.id && sent.message) {
         this.sentMessageCache.set(sent.key.id, sent.message);
