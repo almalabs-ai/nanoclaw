@@ -4,6 +4,10 @@ All notable changes to NanoClaw will be documented in this file.
 
 For detailed release notes, see the [full changelog on the documentation site](https://docs.nanoclaw.dev/changelog).
 
+## [1.4.5] - 2026-04-22
+
+- WhatsApp: fixed `assertSessions not-acceptable` error that prevented the bot from sending messages to any `@g.us` group. Root cause: Baileys 6.17.16 encodes all group participants as `@s.whatsapp.net` regardless of their actual identity type; unresolved LID user-ids produced fake phone JIDs that the WA server rejected. Fix: exclude participants whose `@lid` identity cannot be resolved from the group metadata returned to Baileys. As group members send messages, their LID→phone mappings are progressively captured (new `senderPn` extraction for group participants), so they become included in subsequent sends.
+
 ## [1.4.4] - 2026-04-22
 
 - WhatsApp: auto-register now correctly handles setups where the main "control group" is a DM rather than a @g.us group. Previously, the trust overlap check always failed for DM-based setups (sock.groupMetadata throws for DMs), causing every @mention in new groups to be silently dropped. The sender's user ID is now compared directly against the DM peer JID.
