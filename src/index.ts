@@ -12,6 +12,7 @@ import {
   HEALTH_SOCKET_PATH,
   IDLE_TIMEOUT,
   MAX_MESSAGES_PER_PROMPT,
+  ONECLI_API_KEY,
   ONECLI_URL,
   POLL_INTERVAL,
   TIMEZONE,
@@ -105,6 +106,14 @@ function ensureOneCLIAgent(jid: string, group: RegisteredGroup): void {
         { jid, identifier, created: res.created },
         'OneCLI agent ensured',
       );
+      // Set secret mode to 'all' so the agent inherits all shared credentials
+      // (e.g. ANTHROPIC_API_KEY) without needing per-agent secret assignment.
+      setOneCLIAgentSecretMode(identifier).catch((err) =>
+        logger.debug(
+          { identifier, err: String(err) },
+          'OneCLI agent secret mode set skipped',
+        ),
+      );
     },
     (err) => {
       logger.debug(
@@ -113,6 +122,34 @@ function ensureOneCLIAgent(jid: string, group: RegisteredGroup): void {
       );
     },
   );
+}
+
+async function setOneCLIAgentSecretMode(identifier: string): Promise<void> {
+  if (!ONECLI_URL) return;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (ONECLI_API_KEY) headers['Authorization'] = `Bearer ${ONECLI_API_KEY}`;
+
+  const listRes = await fetch(`${ONECLI_URL}/api/agents`, { headers });
+  if (!listRes.ok) return;
+  const list = (await listRes.json()) as {
+    data?: Array<{ id: string; identifier: string }>;
+  };
+  const agent = list.data?.find((a) => a.identifier === identifier);
+  if (!agent) return;
+
+  const modeRes = await fetch(`${ONECLI_URL}/api/agents/${agent.id}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ secretMode: 'all' }),
+  });
+  if (modeRes.ok) {
+    logger.info(
+      { identifier, agentId: agent.id },
+      'OneCLI agent secret mode set to all',
+    );
+  }
 }
 
 function loadState(): void {
