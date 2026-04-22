@@ -6,10 +6,12 @@ import {
   deleteTask,
   getAllChats,
   getAllRegisteredGroups,
+  getLidPhoneMappings,
   getLastBotMessageTimestamp,
   getMessagesSince,
   getNewMessages,
   getTaskById,
+  setLidPhoneMappingDb,
   setRegisteredGroup,
   storeChatMetadata,
   storeMessage,
@@ -648,5 +650,35 @@ describe('registered group isMain', () => {
     const group = groups['group@g.us'];
     expect(group).toBeDefined();
     expect(group.isMain).toBeUndefined();
+  });
+});
+
+// --- LID phone map persistence ---
+
+describe('lid_phone_map', () => {
+  it('persists a LID→phone mapping', () => {
+    setLidPhoneMappingDb('109882493673590', '972536241167@s.whatsapp.net');
+    const maps = getLidPhoneMappings();
+    expect(maps['109882493673590']).toBe('972536241167@s.whatsapp.net');
+  });
+
+  it('returns all stored mappings', () => {
+    setLidPhoneMappingDb('111111111', 'aaa@s.whatsapp.net');
+    setLidPhoneMappingDb('222222222', 'bbb@s.whatsapp.net');
+    const maps = getLidPhoneMappings();
+    expect(maps['111111111']).toBe('aaa@s.whatsapp.net');
+    expect(maps['222222222']).toBe('bbb@s.whatsapp.net');
+  });
+
+  it('upserts — same LID updates the phone JID', () => {
+    setLidPhoneMappingDb('333333333', 'old@s.whatsapp.net');
+    setLidPhoneMappingDb('333333333', 'new@s.whatsapp.net');
+    const maps = getLidPhoneMappings();
+    expect(maps['333333333']).toBe('new@s.whatsapp.net');
+  });
+
+  it('returns empty object when no mappings exist', () => {
+    const maps = getLidPhoneMappings();
+    expect(Object.keys(maps).length).toBe(0);
   });
 });

@@ -34,8 +34,10 @@ import {
   STORE_DIR,
 } from '../config.js';
 import {
+  getLidPhoneMappings,
   getLastGroupSync,
   getMessageContentById,
+  setLidPhoneMappingDb,
   setLastGroupSync,
   updateChatName,
 } from '../db.js';
@@ -200,6 +202,23 @@ export class WhatsAppChannel implements Channel {
         this.connected = true;
         logger.info('Connected to WhatsApp');
 
+        // Load persisted LID→phone mappings from DB before any message processing.
+        // These survive service restarts so group participants are always resolvable.
+        try {
+          const stored = getLidPhoneMappings();
+          let loaded = 0;
+          for (const [lid, phone] of Object.entries(stored)) {
+            if (!this.lidToPhoneMap[lid]) {
+              this.lidToPhoneMap[lid] = phone;
+              loaded++;
+            }
+          }
+          if (loaded > 0)
+            logger.debug({ loaded }, 'Loaded LID→phone mappings from DB');
+        } catch (err) {
+          logger.debug({ err }, 'Failed to load LID→phone mappings from DB');
+        }
+
         // Build LID to phone mapping from auth state for self-chat translation
         if (this.sock.user) {
           const phoneUser = this.sock.user.id.split(':')[0];
@@ -219,6 +238,12 @@ export class WhatsAppChannel implements Channel {
         // Sync group metadata on startup (respects 24h cache)
         this.syncGroupMetadata().catch((err) =>
           logger.error({ err }, 'Initial group sync failed'),
+        );
+
+        // Attempt to resolve participant LIDs for all registered @g.us groups.
+        // Uses signalRepository.lidMapping which Baileys populates from session state.
+        this.resolveGroupParticipantLids().catch((err) =>
+          logger.debug({ err }, 'Group participant LID resolution skipped'),
         );
         // Set up daily sync timer (only once)
         if (!this.groupSyncTimerStarted) {
@@ -673,6 +698,29 @@ export class WhatsAppChannel implements Channel {
   }
 
   /**
+   * Try to resolve @lid participant JIDs for all registered @g.us groups via
+   * signalRepository.lidMapping. Called once on connect so that restarts don't
+   * lose LID→phone mappings that Baileys already knows about internally.
+   */
+  private async resolveGroupParticipantLids(): Promise<void> {
+    const groups = this.opts.registeredGroups();
+    for (const [groupJid] of Object.entries(groups)) {
+      if (!groupJid.endsWith('@g.us')) continue;
+      try {
+        const meta = await this.sock.groupMetadata(groupJid);
+        for (const p of meta.participants) {
+          if (!p.id.endsWith('@lid')) continue;
+          // translateJid internally calls signalRepository.lidMapping.getPNForLID
+          // and persists the mapping via setLidPhoneMapping when resolved.
+          await this.translateJid(p.id);
+        }
+      } catch {
+        /* non-critical — silently skip if group metadata unavailable */
+      }
+    }
+  }
+
+  /**
    * Sync group metadata from WhatsApp.
    * Fetches all participating groups and stores their names in the database.
    * Called on startup, daily, and on-demand via IPC.
@@ -759,6 +807,12 @@ export class WhatsAppChannel implements Channel {
     this.lidToPhoneMap[lidUser] = phoneJid;
     // Participant IDs in cached group metadata depend on this mapping.
     this.groupMetadataCache.clear();
+    // Persist so the mapping survives service restarts.
+    try {
+      setLidPhoneMappingDb(lidUser, phoneJid);
+    } catch (err) {
+      logger.debug({ lidUser, err }, 'Failed to persist LID→phone mapping');
+    }
   }
 
   private async getNormalizedGroupMetadata(

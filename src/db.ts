@@ -83,6 +83,11 @@ function createSchema(database: Database.Database): void {
       container_config TEXT,
       requires_trigger INTEGER DEFAULT 1
     );
+    CREATE TABLE IF NOT EXISTS lid_phone_map (
+      lid_user TEXT PRIMARY KEY,
+      phone_jid TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -698,6 +703,27 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
         row.requires_trigger === null ? undefined : row.requires_trigger === 1,
       isMain: row.is_main === 1 ? true : undefined,
     };
+  }
+  return result;
+}
+
+// --- LID→phone map (persisted across restarts) ---
+
+export function setLidPhoneMappingDb(lidUser: string, phoneJid: string): void {
+  db.prepare(
+    `INSERT INTO lid_phone_map (lid_user, phone_jid, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(lid_user) DO UPDATE SET phone_jid = excluded.phone_jid, updated_at = excluded.updated_at`,
+  ).run(lidUser, phoneJid, new Date().toISOString());
+}
+
+export function getLidPhoneMappings(): Record<string, string> {
+  const rows = db
+    .prepare('SELECT lid_user, phone_jid FROM lid_phone_map')
+    .all() as Array<{ lid_user: string; phone_jid: string }>;
+  const result: Record<string, string> = {};
+  for (const row of rows) {
+    result[row.lid_user] = row.phone_jid;
   }
   return result;
 }
