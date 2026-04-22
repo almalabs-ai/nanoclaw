@@ -1,9 +1,0 @@
-{
-  "changeType": "core-fix",
-  "linearId": null,
-  "slug": "whatsapp-auto-register",
-  "branch": "fix/whatsapp-auto-register-on-main-overlap",
-  "touchedAreas": ["src/channels/whatsapp.ts", "src/index.ts", "src/channels/whatsapp.test.ts"],
-  "upstreamEligible": false,
-  "currentPhase": 7
-}

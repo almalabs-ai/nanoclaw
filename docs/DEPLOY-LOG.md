@@ -7,6 +7,7 @@ Format: `ISO-TS | TAG | FROM-TAG | STATUS | HOST`
 ## Log
 
 <!-- deploys go here — newest first -->
+- 2026-04-22T08:26:00Z | v1.4.1 | from v1.4.0 | ok | nanoclaw@46.101.149.155
 - 2026-04-21T20:00:00Z | hotfix/whatsapp-lid-owns-jid (pr/#8) | from v1.4.0 | ok | nanoclaw@46.101.149.155
 - 2026-04-21T18:50:00Z | hotfix/container-media-type (pr/#7) | from v1.4.0 | ok | nanoclaw@46.101.149.155
 - 2026-04-21T18:28:23Z | v1.4.0 | from 9a7d172 | ok | nanoclaw@46.101.149.155
