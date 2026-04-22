@@ -4,6 +4,10 @@ All notable changes to NanoClaw will be documented in this file.
 
 For detailed release notes, see the [full changelog on the documentation site](https://docs.nanoclaw.dev/changelog).
 
+## [1.4.6] - 2026-04-22
+
+- WhatsApp: LID→phone mappings are now persisted to `messages.db` and loaded on every reconnect. Previously these were in-memory only — each service restart wiped them, causing group participants with `@lid` identities to be excluded from sender-key distribution, producing "Waiting for this message" on every bot reply after a deploy. The fix adds a `lid_phone_map` table, a startup DB-load pass, and a `resolveGroupParticipantLids()` pass that leverages Baileys' `signalRepository.lidMapping` to discover any additional mappings on connect.
+
 ## [1.4.5] - 2026-04-22
 
 - WhatsApp: fixed `assertSessions not-acceptable` error that prevented the bot from sending messages to any `@g.us` group. Root cause: Baileys 6.17.16 encodes all group participants as `@s.whatsapp.net` regardless of their actual identity type; unresolved LID user-ids produced fake phone JIDs that the WA server rejected. Fix: exclude participants whose `@lid` identity cannot be resolved from the group metadata returned to Baileys. As group members send messages, their LID→phone mappings are progressively captured (new `senderPn` extraction for group participants), so they become included in subsequent sends.
